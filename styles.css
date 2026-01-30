@@ -668,15 +668,21 @@ input[type="checkbox"]:checked::before {
 
 .game-controls {
     display: flex;
-    gap: var(--spacing-md);
+    flex-direction: column;
+    gap: var(--spacing-sm);
     padding: var(--spacing-md);
     background: rgba(0, 0, 0, 0.8);
 }
 
+.controls-row {
+    display: flex;
+    gap: var(--spacing-sm);
+    justify-content: center;
+}
+
 .control-btn {
-    flex: 1;
-    padding: var(--spacing-lg);
-    font-size: 1.2rem;
+    padding: var(--spacing-md) var(--spacing-lg);
+    font-size: 1.1rem;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
@@ -686,11 +692,51 @@ input[type="checkbox"]:checked::before {
     user-select: none;
     -webkit-user-select: none;
     touch-action: manipulation;
+    min-width: 70px;
+}
+
+.control-btn.accel-btn {
+    flex: 2;
+    min-width: 120px;
+}
+
+.control-btn.brake-btn {
+    flex: 1;
+    min-width: 150px;
+}
+
+.control-btn.lane-btn {
+    flex: 1;
+    font-size: 1.4rem;
+    padding: var(--spacing-md);
 }
 
 .control-btn:active {
     background: var(--accent-primary);
-    transform: scale(0.98);
+    transform: scale(0.95);
+}
+
+/* Exit game button */
+.exit-game-btn {
+    position: absolute;
+    top: 60px;
+    left: 10px;
+    width: 40px;
+    height: 40px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    color: var(--text-primary);
+    font-size: 1.2rem;
+    cursor: pointer;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.exit-game-btn:active {
+    background: var(--danger);
 }
 
 /* ============================================
