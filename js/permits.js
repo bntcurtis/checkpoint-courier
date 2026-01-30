@@ -90,10 +90,44 @@ const PERMIT_STEPS_HIGH = {
 // PERMIT SERVICE
 // ============================================
 
+// ============================================
+// FRUSTRATION MESSAGES
+// ============================================
+
+const DELAY_MESSAGES = [
+    "Please wait while we process your request...",
+    "Your application has been placed in the queue.",
+    "System maintenance in progress. Please stand by.",
+    "Verifying your information with central database...",
+    "A supervisor review is required. Please wait.",
+    "Processing... please do not close this window.",
+    "Your file is being retrieved from archives...",
+    "Network congestion detected. Processing slowly.",
+    "Cross-referencing with compliance database...",
+    "Performing mandatory security check...",
+];
+
+const REJECTION_MESSAGES = [
+    { title: "Form Error", message: "A required field was filled incorrectly. Please try again." },
+    { title: "System Error", message: "A technical issue occurred. Please restart the application." },
+    { title: "Verification Failed", message: "Unable to verify your information. Please resubmit." },
+    { title: "Processing Error", message: "Your request could not be processed at this time." },
+    { title: "Queue Timeout", message: "Application timed out. Please try again." },
+    { title: "Database Mismatch", message: "Records do not match. Please start over." },
+    { title: "Session Expired", message: "Your session has expired. Please begin again." },
+    { title: "Duplicate Entry", message: "A similar application is pending. Reset required." },
+];
+
+// ============================================
+// PERMIT SERVICE
+// ============================================
+
 export class PermitService {
     constructor() {
         this.currentApplication = null;
         this.currentStep = 0;
+        this.pendingDelay = null;
+        this.delayMessage = null;
     }
 
     /**
@@ -169,6 +203,11 @@ export class PermitService {
             totalSteps: steps.length,
         };
         this.currentStep = 0;
+        this.pendingDelay = null;
+        this.delayMessage = null;
+
+        // Track application attempt
+        gameState.recordPermitAttempt();
 
         return {
             success: true,
@@ -187,12 +226,59 @@ export class PermitService {
 
     /**
      * Advance to the next step in the application
+     * May include random delays or rejections based on treatment condition
      */
     advanceStep() {
         if (!this.currentApplication) {
             return { success: false, error: 'No active application' };
         }
 
+        const player = gameState.player;
+        const isHighBureaucracyTreatment = isHighBureaucracy(player.treatment);
+
+        // Check for random rejection (high bureaucracy only)
+        if (isHighBureaucracyTreatment && this.currentStep > 0) {
+            const rejectionChance = this.calculateRejectionChance();
+            if (Math.random() < rejectionChance) {
+                // Application rejected - must restart
+                const rejection = this.getRandomRejection();
+                gameState.recordPermitFailure();
+
+                // Reset application
+                this.currentApplication = null;
+                this.currentStep = 0;
+                this.pendingDelay = null;
+                this.delayMessage = null;
+
+                return {
+                    success: false,
+                    isRejection: true,
+                    rejectionTitle: rejection.title,
+                    rejectionMessage: rejection.message,
+                    isComplete: false,
+                };
+            }
+        }
+
+        // Check for random delay (high bureaucracy has higher chance)
+        const delayChance = isHighBureaucracyTreatment ? 0.4 : 0.1;
+        if (Math.random() < delayChance) {
+            // Generate a random delay between 1-4 seconds
+            const delayMs = 1000 + Math.random() * 3000;
+            this.pendingDelay = delayMs;
+            this.delayMessage = this.getRandomDelayMessage();
+
+            return {
+                success: true,
+                isDelay: true,
+                delayMs,
+                delayMessage: this.delayMessage,
+                currentStep: this.currentStep,
+                isComplete: false,
+            };
+        }
+
+        // Normal advancement
         this.currentStep++;
 
         if (this.currentStep >= this.currentApplication.totalSteps) {
@@ -205,6 +291,40 @@ export class PermitService {
             currentStep: this.currentStep,
             isComplete: false,
         };
+    }
+
+    /**
+     * Calculate rejection chance based on current state
+     */
+    calculateRejectionChance() {
+        // Base 15% rejection chance for high bureaucracy
+        let chance = 0.15;
+
+        // Higher steps = slightly lower rejection (you're almost there!)
+        const progress = this.currentStep / this.currentApplication.totalSteps;
+        chance *= (1 - progress * 0.3);
+
+        // More attempts = slightly higher rejection (the system remembers)
+        const attempts = gameState.player.permitApplicationAttempts;
+        if (attempts > 5) {
+            chance *= 1.1;
+        }
+
+        return Math.min(0.25, chance); // Cap at 25%
+    }
+
+    /**
+     * Get a random delay message
+     */
+    getRandomDelayMessage() {
+        return DELAY_MESSAGES[Math.floor(Math.random() * DELAY_MESSAGES.length)];
+    }
+
+    /**
+     * Get a random rejection
+     */
+    getRandomRejection() {
+        return REJECTION_MESSAGES[Math.floor(Math.random() * REJECTION_MESSAGES.length)];
     }
 
     /**
@@ -245,8 +365,15 @@ export class PermitService {
      * Cancel the current application
      */
     cancelApplication() {
+        // Track abandonment if they were mid-application
+        if (this.currentApplication && this.currentStep > 0) {
+            gameState.recordPermitAbandon();
+        }
+
         this.currentApplication = null;
         this.currentStep = 0;
+        this.pendingDelay = null;
+        this.delayMessage = null;
         return { success: true };
     }
 

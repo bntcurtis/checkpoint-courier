@@ -34,6 +34,7 @@ import { uploadSession, exportPlayerData, processPendingUploads, testUploadEndpo
 // ============================================
 
 const screens = {
+    consent: document.getElementById('consent-screen'),
     home: document.getElementById('home-screen'),
     delivery: document.getElementById('delivery-screen'),
     permits: document.getElementById('permits-screen'),
@@ -58,6 +59,22 @@ let currentDeliveryOptions = [];
 let negotiationStartTime = 0;
 let currentCheckpoint = null;
 
+// Hover time tracking for behavioral analysis
+let hoverTracking = {
+    bribe: { total: 0, start: null },
+    show_permit: { total: 0, start: null },
+    argue: { total: 0, start: null },
+    bluff: { total: 0, start: null },
+    flee: { total: 0, start: null },
+    comply: { total: 0, start: null },
+};
+
+function resetHoverTracking() {
+    for (const key of Object.keys(hoverTracking)) {
+        hoverTracking[key] = { total: 0, start: null };
+    }
+}
+
 // Check for debug mode via URL parameter
 const urlParams = new URLSearchParams(window.location.search);
 const debugMode = urlParams.get('debug') === '1';
@@ -72,10 +89,12 @@ async function initialize() {
 
     // Set up event listeners
     setupNavigation();
+    setupConsentFlow();
     setupGameControls();
     setupNegotiationActions();
     setupSettingsActions();
     setupPermitDialog();
+    setupSoundSystem();
 
     // Update UI with player data
     updateAllDisplays();
@@ -84,9 +103,15 @@ async function initialize() {
     gameState.on('moneyChanged', updateMoneyDisplays);
     gameState.on('deliveryCompleted', updateDeliveryCount);
 
-    // Show tutorial for new players
-    if (!gameState.player.tutorialComplete) {
-        showDialog('tutorial');
+    // Check if we need to show consent screen (first launch)
+    if (gameState.player.consentGiven === null) {
+        showScreen('consent');
+    } else {
+        showScreen('home');
+        // Show tutorial for players who haven't completed it
+        if (!gameState.player.tutorialComplete) {
+            showDialog('tutorial');
+        }
     }
 
     // Check for impound status
@@ -104,6 +129,29 @@ async function initialize() {
     console.log('Checkpoint Courier initialized');
     console.log(`Player: ${gameState.player.anonymousId}`);
     console.log(`Treatment: ${gameState.player.treatment}`);
+    console.log(`Consent: ${gameState.player.consentGiven}`);
+}
+
+// ============================================
+// CONSENT FLOW
+// ============================================
+
+function setupConsentFlow() {
+    document.getElementById('btn-consent-donate').addEventListener('click', () => {
+        gameState.setConsent(true);
+        showScreen('home');
+        if (!gameState.player.tutorialComplete) {
+            showDialog('tutorial');
+        }
+    });
+
+    document.getElementById('btn-consent-private').addEventListener('click', () => {
+        gameState.setConsent(false);
+        showScreen('home');
+        if (!gameState.player.tutorialComplete) {
+            showDialog('tutorial');
+        }
+    });
 }
 
 // ============================================
@@ -337,6 +385,14 @@ function initializeDrivingGame(delivery) {
     drivingGame.onLivesChange = (lives) => {
         updateLivesDisplay(lives);
     };
+    drivingGame.onCollision = () => {
+        playSound('hit');
+    };
+    drivingGame.onCrash = () => {
+        // Immediately save state to prevent refresh exploit
+        gameState.save();
+        playSound('crash');
+    };
     drivingGame.onGameOver = handleGameOver;
 
     // Initialize and start
@@ -567,10 +623,19 @@ function showNegotiationDialog(checkpoint) {
     const player = gameState.player;
     const delivery = gameState.currentDelivery;
 
-    // Update dialog content
+    // Prepare player context for dynamic dialogue
+    const playerContext = {
+        heatLevel: player.getHeat(officer.personality),
+        totalBribes: player.totalBribes,
+        totalFines: player.totalFines,
+        sessionBribes: gameState.sessionBribes,
+        frustrationIndex: player.getFrustrationIndex(),
+    };
+
+    // Update dialog content with history-aware dialogue
     document.getElementById('officer-title').textContent = 'Checkpoint Officer';
     document.getElementById('officer-personality').textContent = officer.stats.name;
-    document.getElementById('officer-dialogue').textContent = `"${getInitialDialogue(officer)}"`;
+    document.getElementById('officer-dialogue').textContent = `"${getInitialDialogue(officer, playerContext)}"`;
 
     // Situation info
     const speed = gameState.gameSpeed;
@@ -610,16 +675,52 @@ function showNegotiationDialog(checkpoint) {
     document.getElementById('negotiation-result').classList.add('hidden');
     document.getElementById('negotiation-actions').classList.remove('hidden');
 
-    // Track response time
+    // Track response time and reset hover tracking
     negotiationStartTime = performance.now();
+    resetHoverTracking();
 
     showDialog('negotiation');
 }
 
 function setupNegotiationActions() {
     document.querySelectorAll('#negotiation-actions .btn-action').forEach(btn => {
+        const action = btn.dataset.action;
+
+        // Track hover time - mouse events
+        btn.addEventListener('mouseenter', () => {
+            if (action && hoverTracking[action]) {
+                hoverTracking[action].start = performance.now();
+            }
+        });
+
+        btn.addEventListener('mouseleave', () => {
+            if (action && hoverTracking[action] && hoverTracking[action].start !== null) {
+                hoverTracking[action].total += performance.now() - hoverTracking[action].start;
+                hoverTracking[action].start = null;
+            }
+        });
+
+        // Track hover time - touch events (for mobile)
+        btn.addEventListener('touchstart', () => {
+            if (action && hoverTracking[action]) {
+                hoverTracking[action].start = performance.now();
+            }
+        }, { passive: true });
+
+        btn.addEventListener('touchend', () => {
+            if (action && hoverTracking[action] && hoverTracking[action].start !== null) {
+                hoverTracking[action].total += performance.now() - hoverTracking[action].start;
+                hoverTracking[action].start = null;
+            }
+        }, { passive: true });
+
+        // Click handler
         btn.addEventListener('click', () => {
-            const action = btn.dataset.action;
+            // Finalize hover time for the clicked button
+            if (action && hoverTracking[action] && hoverTracking[action].start !== null) {
+                hoverTracking[action].total += performance.now() - hoverTracking[action].start;
+                hoverTracking[action].start = null;
+            }
             handleNegotiationAction(action);
         });
     });
@@ -661,7 +762,7 @@ function handleNegotiationAction(action) {
     // Process the action
     const result = processNegotiation(action, context);
 
-    // Log encounter
+    // Log encounter with hover time data
     const encounter = new CheckpointEncounter({
         sessionId: gameState.currentSession?.id,
         playerId: player.id,
@@ -681,6 +782,13 @@ function handleNegotiationAction(action) {
         hadContraband: context.hasContraband,
         heatLevel: context.player.getHeat(officer.personality),
         responseTimeMs: Math.round(responseTimeMs),
+        // Hover time tracking - captures hesitation/consideration behavior
+        hoverTimeBribe: Math.round(hoverTracking.bribe?.total || 0),
+        hoverTimePermit: Math.round(hoverTracking.show_permit?.total || 0),
+        hoverTimeArgue: Math.round(hoverTracking.argue?.total || 0),
+        hoverTimeBluff: Math.round(hoverTracking.bluff?.total || 0),
+        hoverTimeFlee: Math.round(hoverTracking.flee?.total || 0),
+        hoverTimeComply: Math.round(hoverTracking.comply?.total || 0),
     });
 
     if (gameState.currentSession) {
@@ -695,19 +803,28 @@ function handleNegotiationAction(action) {
     if (result.bribeAmount > 0 && result.passed) {
         gameState.recordBribe(result.bribeAmount);
         gameState.increaseHeat(officer.personality, result.heatChange || 0.15);
+        playSound('bribe');
     }
 
     if (result.fineAmount > 0) {
         gameState.recordFine(result.fineAmount);
+        playSound('error');
     }
 
     if (result.impounded) {
         gameState.impoundTruck(3);
+        playSound('error');
     }
 
     // Use permit if showed valid one
     if (action === NegotiationAction.SHOW_PERMIT && result.passed) {
         gameState.consumeOnePermitUse();
+        playSound('success');
+    }
+
+    // Play success sound for other passes
+    if (result.passed && action !== NegotiationAction.SHOW_PERMIT && !result.bribeAmount) {
+        playSound('success');
     }
 
     // Show result
@@ -976,21 +1093,120 @@ function setupPermitDialog() {
     document.getElementById('btn-cancel-permit').addEventListener('click', () => {
         permitService.cancelApplication();
         hideDialog('permitApplication');
+        playSound('click');
     });
 
     document.getElementById('btn-next-permit-step').addEventListener('click', () => {
-        const result = permitService.advanceStep();
-        if (result.isComplete) {
-            hideDialog('permitApplication');
-            renderPermitsScreen();
-            updateMoneyDisplays();
-        } else {
-            updatePermitApplicationDialog();
-        }
+        handlePermitStepAdvance();
     });
 }
 
+function handlePermitStepAdvance() {
+    const nextBtn = document.getElementById('btn-next-permit-step');
+    const result = permitService.advanceStep();
+
+    // Handle rejection
+    if (result.isRejection) {
+        playSound('error');
+        showPermitRejection(result.rejectionTitle, result.rejectionMessage);
+        return;
+    }
+
+    // Handle delay
+    if (result.isDelay) {
+        playSound('click');
+        showPermitDelay(result.delayMs, result.delayMessage, () => {
+            // After delay, actually advance (this simulates the wait)
+            const nextResult = permitService.advanceStep();
+            if (nextResult.isComplete) {
+                playSound('success');
+                hideDialog('permitApplication');
+                renderPermitsScreen();
+                updateMoneyDisplays();
+            } else if (nextResult.isRejection) {
+                // Rejection can happen after delay too
+                playSound('error');
+                showPermitRejection(nextResult.rejectionTitle, nextResult.rejectionMessage);
+            } else {
+                updatePermitApplicationDialog();
+            }
+        });
+        return;
+    }
+
+    // Normal success
+    if (result.isComplete) {
+        playSound('success');
+        hideDialog('permitApplication');
+        renderPermitsScreen();
+        updateMoneyDisplays();
+    } else {
+        playSound('click');
+        updatePermitApplicationDialog();
+    }
+}
+
+function showPermitDelay(delayMs, message, callback) {
+    const nextBtn = document.getElementById('btn-next-permit-step');
+    const progressText = document.getElementById('permit-progress-text');
+    const originalBtnText = nextBtn.textContent;
+    const originalProgressText = progressText.textContent;
+
+    // Disable button and show delay message
+    nextBtn.disabled = true;
+    nextBtn.textContent = '⏳ Processing...';
+    progressText.textContent = message;
+    progressText.style.color = 'var(--accent-warning)';
+
+    // Wait for delay then continue
+    setTimeout(() => {
+        nextBtn.disabled = false;
+        nextBtn.textContent = originalBtnText;
+        progressText.style.color = '';
+        callback();
+    }, delayMs);
+}
+
+function showPermitRejection(title, message) {
+    const stepsContainer = document.getElementById('permit-steps');
+    const nextBtn = document.getElementById('btn-next-permit-step');
+    const cancelBtn = document.getElementById('btn-cancel-permit');
+    const progressText = document.getElementById('permit-progress-text');
+
+    // Show rejection message
+    stepsContainer.innerHTML = `
+        <div class="permit-rejection">
+            <div class="rejection-icon">❌</div>
+            <h3 class="rejection-title">${title}</h3>
+            <p class="rejection-message">${message}</p>
+            <p class="rejection-hint">You will need to restart the application process.</p>
+        </div>
+    `;
+
+    // Update progress
+    progressText.textContent = 'Application Rejected';
+    progressText.style.color = 'var(--accent-danger)';
+    document.getElementById('permit-progress-fill').style.width = '0%';
+    document.getElementById('permit-progress-fill').style.backgroundColor = 'var(--accent-danger)';
+
+    // Update buttons
+    nextBtn.classList.add('hidden');
+    cancelBtn.textContent = 'Close';
+}
+
 function showPermitApplicationDialog() {
+    // Reset dialog state (in case it was left in rejection state)
+    const nextBtn = document.getElementById('btn-next-permit-step');
+    const cancelBtn = document.getElementById('btn-cancel-permit');
+    const progressText = document.getElementById('permit-progress-text');
+    const progressFill = document.getElementById('permit-progress-fill');
+
+    nextBtn.classList.remove('hidden');
+    nextBtn.disabled = false;
+    cancelBtn.textContent = 'Cancel';
+    progressText.style.color = '';
+    progressFill.style.backgroundColor = '';
+
     updatePermitApplicationDialog();
     showDialog('permitApplication');
 }
@@ -1093,12 +1309,28 @@ window.buyUpgrade = function(upgradeId) {
 // ============================================
 
 function renderSettingsScreen() {
-    document.getElementById('consent-toggle').checked = gameState.player.consentGiven;
+    document.getElementById('consent-toggle').checked = gameState.player.consentGiven === true;
+    document.getElementById('sound-toggle').checked = gameState.player.soundEnabled;
+    document.getElementById('volume-slider').value = gameState.player.soundVolume;
+    document.getElementById('settings-player-id').textContent = gameState.player.anonymousId;
+    document.getElementById('settings-treatment').textContent = gameState.player.treatment || '--';
 }
 
 function setupSettingsActions() {
     document.getElementById('consent-toggle').addEventListener('change', (e) => {
         gameState.setConsent(e.target.checked);
+    });
+
+    // Sound settings
+    document.getElementById('sound-toggle').addEventListener('change', (e) => {
+        gameState.setSoundEnabled(e.target.checked);
+        if (e.target.checked) {
+            playSound('click'); // Test sound
+        }
+    });
+
+    document.getElementById('volume-slider').addEventListener('input', (e) => {
+        gameState.setSoundVolume(parseInt(e.target.value));
     });
 
     document.getElementById('btn-export-data').addEventListener('click', () => {
@@ -1235,3 +1467,124 @@ document.addEventListener('visibilitychange', () => {
         processPendingUploads();
     }
 });
+
+// ============================================
+// SOUND SYSTEM
+// ============================================
+
+// Audio context for sound generation (no external files needed)
+let audioContext = null;
+
+function setupSoundSystem() {
+    // Create audio context on first user interaction (required by browsers)
+    const initAudio = () => {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        document.removeEventListener('click', initAudio);
+        document.removeEventListener('touchstart', initAudio);
+    };
+    document.addEventListener('click', initAudio);
+    document.addEventListener('touchstart', initAudio);
+}
+
+/**
+ * Play a synthesized sound effect
+ * @param {string} type - Sound type: 'click', 'success', 'error', 'coin', 'hit', 'checkpoint'
+ */
+function playSound(type) {
+    if (!gameState.player.soundEnabled || !audioContext) return;
+
+    const volume = (gameState.player.soundVolume / 100) * 0.3; // Max 30% volume
+    const now = audioContext.currentTime;
+
+    try {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        switch (type) {
+            case 'click':
+                oscillator.frequency.setValueAtTime(800, now);
+                oscillator.frequency.exponentialRampToValueAtTime(600, now + 0.05);
+                gainNode.gain.setValueAtTime(volume * 0.5, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+                oscillator.start(now);
+                oscillator.stop(now + 0.05);
+                break;
+
+            case 'success':
+            case 'coin':
+                // Cha-ching sound (ascending notes)
+                oscillator.frequency.setValueAtTime(523, now); // C5
+                oscillator.frequency.setValueAtTime(659, now + 0.1); // E5
+                oscillator.frequency.setValueAtTime(784, now + 0.2); // G5
+                gainNode.gain.setValueAtTime(volume, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+                oscillator.start(now);
+                oscillator.stop(now + 0.4);
+                break;
+
+            case 'error':
+            case 'buzzer':
+                // Harsh buzzer
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(150, now);
+                oscillator.frequency.exponentialRampToValueAtTime(100, now + 0.3);
+                gainNode.gain.setValueAtTime(volume * 0.7, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+                break;
+
+            case 'hit':
+            case 'crash':
+                // Impact sound
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(200, now);
+                oscillator.frequency.exponentialRampToValueAtTime(50, now + 0.15);
+                gainNode.gain.setValueAtTime(volume, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                oscillator.start(now);
+                oscillator.stop(now + 0.15);
+                break;
+
+            case 'checkpoint':
+                // Alert sound
+                oscillator.frequency.setValueAtTime(440, now);
+                oscillator.frequency.setValueAtTime(550, now + 0.1);
+                oscillator.frequency.setValueAtTime(440, now + 0.2);
+                gainNode.gain.setValueAtTime(volume * 0.6, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+                break;
+
+            case 'bribe':
+                // Sneaky sound (low tones)
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(200, now);
+                oscillator.frequency.setValueAtTime(250, now + 0.1);
+                oscillator.frequency.setValueAtTime(200, now + 0.2);
+                gainNode.gain.setValueAtTime(volume * 0.5, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+                oscillator.start(now);
+                oscillator.stop(now + 0.25);
+                break;
+
+            default:
+                // Generic beep
+                oscillator.frequency.setValueAtTime(440, now);
+                gainNode.gain.setValueAtTime(volume * 0.5, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+        }
+    } catch (e) {
+        console.warn('Sound playback failed:', e);
+    }
+}
+
+// Export for use in other modules
+window.playSound = playSound;

@@ -467,10 +467,132 @@ const DIALOGUE = {
 
 /**
  * Get initial dialogue for an officer
+ * Now includes dynamic elements based on player history
  */
-export function getInitialDialogue(officer) {
+export function getInitialDialogue(officer, playerContext = null) {
+    // If we have player context, check for history-based dialogue
+    if (playerContext) {
+        const historyDialogue = getHistoryBasedDialogue(officer, playerContext);
+        if (historyDialogue) {
+            return historyDialogue;
+        }
+    }
+
+    // Fall back to standard personality-based dialogue
     const options = DIALOGUE.initial[officer.personality] || DIALOGUE.initial[OfficerPersonality.PRAGMATIC];
     return randomChoice(options);
+}
+
+/**
+ * Generate dynamic dialogue based on player history with this officer type
+ */
+function getHistoryBasedDialogue(officer, context) {
+    const { heatLevel, totalBribes, totalFines, sessionBribes, frustrationIndex } = context;
+
+    // High heat - officer recognizes player as a known briber
+    if (heatLevel > 0.6) {
+        const highHeatDialogue = {
+            [OfficerPersonality.BY_THE_BOOK]: [
+                "You again? I've heard about you. Full inspection.",
+                "Word travels fast. You're on our watch list now.",
+                "I know your type. Let's see those papers.",
+            ],
+            [OfficerPersonality.PRAGMATIC]: [
+                "Hey, I've heard about you. Let's keep this clean today.",
+                "You're getting a reputation. Might want to fix that.",
+                "Someone mentioned your name. Don't make this complicated.",
+            ],
+            [OfficerPersonality.CORRUPT]: [
+                "Ah, my favorite customer returns! What do you have for me today?",
+                "I was hoping I'd see you again. We have unfinished business.",
+                "Word is you're a... generous driver. Let's talk.",
+            ],
+            [OfficerPersonality.LAZY]: [
+                "*yawn* Oh, you again. Whatever. Papers.",
+                "Ugh, I was warned you'd show up. Make it quick.",
+                "You again? Fine, let's get this over with.",
+            ],
+            [OfficerPersonality.ZEALOT]: [
+                "YOU! I've been waiting for this! FULL INSPECTION!",
+                "The notorious one appears! Today, justice is served!",
+                "I KNOW what you've been doing! This ends NOW!",
+            ],
+            [OfficerPersonality.SHAKEDOWN]: [
+                "Well, if it isn't my favorite repeat offender. Premium rates today.",
+                "I heard you're generous with your money. Let's test that.",
+                "They told me you pay well. Don't disappoint me.",
+            ],
+        };
+
+        const options = highHeatDialogue[officer.personality];
+        if (options && Math.random() < 0.7) { // 70% chance to use history dialogue
+            return randomChoice(options);
+        }
+    }
+
+    // Moderate heat - officer is somewhat wary
+    if (heatLevel > 0.3) {
+        const midHeatDialogue = {
+            [OfficerPersonality.BY_THE_BOOK]: "You seem... familiar. Papers, please.",
+            [OfficerPersonality.PRAGMATIC]: "Have we met before? Anyway, papers.",
+            [OfficerPersonality.CORRUPT]: "Didn't I see you earlier? Interesting...",
+            [OfficerPersonality.LAZY]: "Wait, weren't you... eh, whatever. Papers.",
+            [OfficerPersonality.ZEALOT]: "Your face rings a bell. I'm watching you.",
+            [OfficerPersonality.SHAKEDOWN]: "I feel like we've done business before...",
+        };
+
+        if (Math.random() < 0.5) {
+            return midHeatDialogue[officer.personality];
+        }
+    }
+
+    // Multiple bribes this session - officers are getting wise
+    if (sessionBribes >= 2) {
+        const bribeAwareDialogue = {
+            [OfficerPersonality.BY_THE_BOOK]: "I've been radioed ahead. Don't try anything.",
+            [OfficerPersonality.PRAGMATIC]: "I heard there's someone paying off officers today...",
+            [OfficerPersonality.CORRUPT]: "Word is there's a big spender on the road today.",
+            [OfficerPersonality.LAZY]: "Heard you've been busy. Let me guess...",
+            [OfficerPersonality.ZEALOT]: "Reports of bribery on this route! You're SUSPECT!",
+            [OfficerPersonality.SHAKEDOWN]: "I heard you're making friends on the road...",
+        };
+
+        if (Math.random() < 0.6) {
+            return bribeAwareDialogue[officer.personality];
+        }
+    }
+
+    // High frustration with permits - officer notices player seems worn down
+    if (frustrationIndex && frustrationIndex > 0.5) {
+        const frustratedPlayerDialogue = {
+            [OfficerPersonality.BY_THE_BOOK]: "You look stressed. Permit troubles? Let's verify.",
+            [OfficerPersonality.PRAGMATIC]: "Tough day? Permit office giving you grief?",
+            [OfficerPersonality.CORRUPT]: "You look like someone who's had a bad day at the permit office...",
+            [OfficerPersonality.LAZY]: "You look tired. Bureaucracy wearing you down? Papers.",
+            [OfficerPersonality.ZEALOT]: "You look like someone who's been avoiding paperwork!",
+            [OfficerPersonality.SHAKEDOWN]: "Permit problems, huh? I might be able to help... for a price.",
+        };
+
+        if (Math.random() < 0.4) {
+            return frustratedPlayerDialogue[officer.personality];
+        }
+    }
+
+    // New player with no history - welcome dialogue occasionally
+    if (totalBribes === 0 && totalFines === 0 && Math.random() < 0.2) {
+        const newPlayerDialogue = {
+            [OfficerPersonality.BY_THE_BOOK]: "First time through here? The rules are simple. Papers.",
+            [OfficerPersonality.PRAGMATIC]: "New to this route? Let's make this easy. Papers?",
+            [OfficerPersonality.CORRUPT]: "Fresh face. Let me tell you how things work around here...",
+            [OfficerPersonality.LAZY]: "New driver? Great. Less paperwork. Show me something.",
+            [OfficerPersonality.ZEALOT]: "A newcomer! Let me show you proper procedure!",
+            [OfficerPersonality.SHAKEDOWN]: "New driver, eh? Welcome to the checkpoint. Let's talk.",
+        };
+
+        return newPlayerDialogue[officer.personality];
+    }
+
+    return null; // No history-specific dialogue, use default
 }
 
 /**

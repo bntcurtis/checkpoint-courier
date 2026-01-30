@@ -367,8 +367,17 @@ export class Player {
         this.upgrades = data.upgrades || []; // Array of upgrade IDs
         this.impoundedUntilDelivery = data.impoundedUntilDelivery ?? 0;
         this.firstLaunch = data.firstLaunch || new Date().toISOString();
-        this.consentGiven = data.consentGiven ?? true;
         this.tutorialComplete = data.tutorialComplete ?? false;
+
+        // Consent & Settings
+        this.consentGiven = data.consentGiven ?? null; // null = not yet asked, true/false = answered
+        this.soundEnabled = data.soundEnabled ?? false;
+        this.soundVolume = data.soundVolume ?? 50;
+
+        // Research metrics: Bureaucracy Frustration Index
+        this.permitApplicationAttempts = data.permitApplicationAttempts ?? 0;
+        this.permitApplicationFailures = data.permitApplicationFailures ?? 0;
+        this.permitApplicationAbandons = data.permitApplicationAbandons ?? 0;
     }
 
     initializeHeatTracker() {
@@ -426,9 +435,27 @@ export class Player {
             upgrades: this.upgrades,
             impoundedUntilDelivery: this.impoundedUntilDelivery,
             firstLaunch: this.firstLaunch,
-            consentGiven: this.consentGiven,
             tutorialComplete: this.tutorialComplete,
+            // Settings
+            consentGiven: this.consentGiven,
+            soundEnabled: this.soundEnabled,
+            soundVolume: this.soundVolume,
+            // Research metrics
+            permitApplicationAttempts: this.permitApplicationAttempts,
+            permitApplicationFailures: this.permitApplicationFailures,
+            permitApplicationAbandons: this.permitApplicationAbandons,
         };
+    }
+
+    /**
+     * Get the bureaucracy frustration index (0-1)
+     * Higher = more frustrated
+     */
+    getFrustrationIndex() {
+        if (this.permitApplicationAttempts === 0) return 0;
+        const failureRate = this.permitApplicationFailures / this.permitApplicationAttempts;
+        const abandonRate = this.permitApplicationAbandons / Math.max(1, this.permitApplicationAttempts);
+        return Math.min(1, (failureRate * 0.6) + (abandonRate * 0.4));
     }
 }
 
@@ -499,6 +526,15 @@ export class CheckpointEncounter {
         this.heatLevel = data.heatLevel;
         this.responseTimeMs = data.responseTimeMs;
         this.timestamp = coarsenTimestamp(new Date());
+
+        // Hover time tracking (behavioral hesitation metrics)
+        // Each tracks milliseconds spent hovering over the button before final action
+        this.hoverTimeBribe = data.hoverTimeBribe || 0;
+        this.hoverTimePermit = data.hoverTimePermit || 0;
+        this.hoverTimeArgue = data.hoverTimeArgue || 0;
+        this.hoverTimeBluff = data.hoverTimeBluff || 0;
+        this.hoverTimeFlee = data.hoverTimeFlee || 0;
+        this.hoverTimeComply = data.hoverTimeComply || 0;
     }
 
     toJSON() {
