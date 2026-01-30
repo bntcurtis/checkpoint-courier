@@ -360,6 +360,10 @@ function updateCheckpointCounter() {
 function setupGameControls() {
     const accelerateBtn = document.getElementById('btn-accelerate');
     const brakeBtn = document.getElementById('btn-brake');
+    const laneLeftBtn = document.getElementById('btn-lane-left');
+    const laneRightBtn = document.getElementById('btn-lane-right');
+    const exitBtn = document.getElementById('btn-exit-game');
+    const canvas = document.getElementById('game-canvas');
 
     // Touch/mouse events for acceleration
     accelerateBtn.addEventListener('mousedown', () => drivingGame?.setAccelerating(true));
@@ -370,6 +374,7 @@ function setupGameControls() {
         drivingGame?.setAccelerating(true);
     });
     accelerateBtn.addEventListener('touchend', () => drivingGame?.setAccelerating(false));
+    accelerateBtn.addEventListener('touchcancel', () => drivingGame?.setAccelerating(false));
 
     // Touch/mouse events for braking
     brakeBtn.addEventListener('mousedown', () => drivingGame?.setBraking(true));
@@ -380,6 +385,86 @@ function setupGameControls() {
         drivingGame?.setBraking(true);
     });
     brakeBtn.addEventListener('touchend', () => drivingGame?.setBraking(false));
+    brakeBtn.addEventListener('touchcancel', () => drivingGame?.setBraking(false));
+
+    // Lane change buttons
+    laneLeftBtn.addEventListener('mousedown', () => drivingGame?.changeLane(-1));
+    laneLeftBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        drivingGame?.changeLane(-1);
+    });
+
+    laneRightBtn.addEventListener('mousedown', () => drivingGame?.changeLane(1));
+    laneRightBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        drivingGame?.changeLane(1);
+    });
+
+    // Exit button
+    exitBtn.addEventListener('click', handleExitGame);
+    exitBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        handleExitGame();
+    });
+
+    // Swipe gesture support on canvas
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartTime = 0;
+
+    canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            touchStartTime = Date.now();
+        }
+    }, { passive: true });
+
+    canvas.addEventListener('touchend', (e) => {
+        if (!drivingGame || !drivingGame.running) return;
+
+        const touchEndX = e.changedTouches[0].clientX;
+        const touchEndY = e.changedTouches[0].clientY;
+        const touchDuration = Date.now() - touchStartTime;
+
+        const deltaX = touchEndX - touchStartX;
+        const deltaY = touchEndY - touchStartY;
+        const absX = Math.abs(deltaX);
+        const absY = Math.abs(deltaY);
+
+        // Minimum swipe distance and max time for it to count as a swipe
+        const minSwipeDistance = 30;
+        const maxSwipeTime = 500;
+
+        if (touchDuration < maxSwipeTime) {
+            if (absX > absY && absX > minSwipeDistance) {
+                // Horizontal swipe - lane change
+                if (deltaX < 0) {
+                    drivingGame.changeLane(-1); // Swipe left
+                } else {
+                    drivingGame.changeLane(1); // Swipe right
+                }
+            } else if (absY > absX && absY > minSwipeDistance) {
+                // Vertical swipe - speed control
+                if (deltaY < 0) {
+                    // Swipe up - brief acceleration boost
+                    drivingGame.setAccelerating(true);
+                    setTimeout(() => drivingGame?.setAccelerating(false), 200);
+                } else {
+                    // Swipe down - brief brake
+                    drivingGame.setBraking(true);
+                    setTimeout(() => drivingGame?.setBraking(false), 200);
+                }
+            } else if (absX < 10 && absY < 10) {
+                // Tap - toggle acceleration
+                if (drivingGame.accelerating) {
+                    drivingGame.setAccelerating(false);
+                } else {
+                    drivingGame.setAccelerating(true);
+                }
+            }
+        }
+    }, { passive: true });
 
     // Keyboard controls
     document.addEventListener('keydown', (e) => {
@@ -402,6 +487,9 @@ function setupGameControls() {
             case 'd':
                 drivingGame.changeLane(1);
                 break;
+            case 'Escape':
+                handleExitGame();
+                break;
         }
     });
 
@@ -419,6 +507,44 @@ function setupGameControls() {
                 break;
         }
     });
+}
+
+function handleExitGame() {
+    if (!drivingGame) {
+        showScreen('home');
+        return;
+    }
+
+    // Stop the game
+    drivingGame.stop();
+
+    // End session as abandoned if there was one
+    const session = gameState.currentSession;
+    if (session) {
+        gameState.endSession('abandoned');
+
+        // Upload the partial session data
+        session.totalBribes = gameState.sessionBribeAmount || 0;
+        session.totalFines = gameState.sessionFineAmount || 0;
+
+        console.log(`📤 Uploading abandoned session (user exited)...`);
+        uploadSession(session)
+            .then(result => {
+                if (result.success) {
+                    console.log('✅ Session data uploaded');
+                }
+            })
+            .catch(err => console.error('❌ Upload error:', err));
+    }
+
+    // Clear game state
+    gameState.currentDelivery = null;
+    gameState.currentSession = null;
+    drivingGame = null;
+
+    // Return to home
+    showScreen('home');
+    updateAllDisplays();
 }
 
 // ============================================
@@ -641,14 +767,19 @@ function updateLivesDisplay(lives) {
 function handleGameOver() {
     console.log('💀 Game Over - Vehicle destroyed!');
 
+    // Stop the game if it's still running
+    if (drivingGame) {
+        drivingGame.stop();
+    }
+
     // End the session as abandoned
     const session = gameState.currentSession;
-    gameState.endSession('abandoned');
-
-    // Upload the session data
     if (session) {
-        session.totalBribes = gameState.sessionBribeAmount;
-        session.totalFines = gameState.sessionFineAmount;
+        gameState.endSession('abandoned');
+
+        // Upload the session data
+        session.totalBribes = gameState.sessionBribeAmount || 0;
+        session.totalFines = gameState.sessionFineAmount || 0;
 
         console.log(`📤 Auto-uploading abandoned session...`);
         uploadSession(session)
@@ -663,28 +794,38 @@ function handleGameOver() {
     // Show game over message
     const delivery = gameState.currentDelivery;
     showGameOverSummary(delivery);
+
+    // Clear game state
+    gameState.currentDelivery = null;
+    gameState.currentSession = null;
 }
 
 function showGameOverSummary(delivery) {
     const dialog = document.getElementById('delivery-complete-dialog');
-    const titleEl = dialog.querySelector('h2');
-    const detailsEl = dialog.querySelector('.delivery-details');
-    const rewardEl = dialog.querySelector('.delivery-reward');
+    if (!dialog) {
+        console.error('Could not find delivery-complete-dialog');
+        showScreen('home');
+        return;
+    }
 
-    titleEl.textContent = '💥 Vehicle Destroyed!';
+    // Update the dialog header
+    const titleEl = dialog.querySelector('.dialog-header h3');
+    if (titleEl) {
+        titleEl.textContent = '💥 Vehicle Destroyed!';
+    }
 
-    detailsEl.innerHTML = `
-        <p>Your truck took too much damage from obstacles.</p>
-        <p>The delivery was abandoned.</p>
-        ${delivery ? `<p class="route-name">${delivery.name}</p>` : ''}
-    `;
+    // Update the summary to show game over info
+    document.getElementById('summary-base-reward').textContent = '0 (Crashed)';
+    document.getElementById('summary-fines').textContent = '0';
+    document.getElementById('summary-bribes').textContent = '0';
+    document.getElementById('summary-total').textContent = '0';
+    document.getElementById('summary-total').style.color = 'var(--accent-danger)';
 
-    rewardEl.innerHTML = `
-        <p style="color: #ef4444; font-size: 1.2em;">No reward earned</p>
-        <p>Current balance: $${gameState.player.money}</p>
-    `;
+    // Clear game reference
+    drivingGame = null;
 
-    showDialog('delivery-complete');
+    // Show the dialog
+    showDialog('deliveryComplete');
 }
 
 // ============================================
