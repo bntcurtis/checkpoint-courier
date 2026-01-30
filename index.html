@@ -176,9 +176,18 @@
 
             <canvas id="game-canvas"></canvas>
 
+            <!-- Exit button (top left, always visible) -->
+            <button id="btn-exit-game" class="exit-game-btn" title="Exit to menu">✕</button>
+
             <div id="game-controls" class="game-controls">
-                <button id="btn-accelerate" class="control-btn">⬆️ Accelerate</button>
-                <button id="btn-brake" class="control-btn">⬇️ Brake</button>
+                <div class="controls-row">
+                    <button id="btn-lane-left" class="control-btn lane-btn">⬅️</button>
+                    <button id="btn-accelerate" class="control-btn accel-btn">⬆️ Gas</button>
+                    <button id="btn-lane-right" class="control-btn lane-btn">➡️</button>
+                </div>
+                <div class="controls-row">
+                    <button id="btn-brake" class="control-btn brake-btn">⬇️ Brake</button>
+                </div>
             </div>
         </div>
 
