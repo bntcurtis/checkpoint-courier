@@ -90,6 +90,90 @@ html, body {
 }
 
 /* ============================================
+   CONSENT SCREEN
+   ============================================ */
+
+.consent-container {
+    max-width: 500px;
+    margin: 0 auto;
+    padding: var(--spacing-xl);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 100%;
+}
+
+.consent-container h1 {
+    font-size: 2.5rem;
+    color: var(--accent-primary);
+    text-shadow: 0 0 20px rgba(233, 69, 96, 0.3);
+    margin-bottom: var(--spacing-sm);
+}
+
+.consent-container .tagline {
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-xl);
+}
+
+.consent-info {
+    text-align: left;
+    margin-bottom: var(--spacing-xl);
+}
+
+.consent-info > p {
+    margin-bottom: var(--spacing-lg);
+    line-height: 1.6;
+}
+
+.research-notice {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+}
+
+.research-notice h3 {
+    color: var(--accent-warning);
+    margin-bottom: var(--spacing-sm);
+    font-size: 1rem;
+}
+
+.research-notice p {
+    margin-bottom: var(--spacing-sm);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.research-notice ul {
+    list-style: none;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.research-notice li {
+    padding: var(--spacing-xs) 0;
+}
+
+.research-notice li::before {
+    content: "✓ ";
+    color: var(--accent-success);
+}
+
+.consent-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.consent-note {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* ============================================
    HEADERS
    ============================================ */
 
@@ -958,6 +1042,47 @@ input[type="checkbox"]:checked::before {
 .step-description {
     font-size: 0.85rem;
     color: var(--text-secondary);
+}
+
+/* Permit Rejection UI */
+.permit-rejection {
+    text-align: center;
+    padding: var(--spacing-xl);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--accent-danger);
+    border-radius: var(--border-radius);
+    margin: var(--spacing-lg) 0;
+}
+
+.rejection-icon {
+    font-size: 3rem;
+    margin-bottom: var(--spacing-md);
+    animation: shake 0.5s ease-in-out;
+}
+
+.rejection-title {
+    color: var(--accent-danger);
+    font-size: 1.2rem;
+    margin-bottom: var(--spacing-sm);
+}
+
+.rejection-message {
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-md);
+}
+
+.rejection-hint {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-10px); }
+    40% { transform: translateX(10px); }
+    60% { transform: translateX(-10px); }
+    80% { transform: translateX(10px); }
 }
 
 .permit-progress {
