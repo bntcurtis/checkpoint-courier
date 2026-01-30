@@ -10,11 +10,12 @@ A gamified behavioral economics research instrument for studying how institution
 2. [Theoretical Framework](#theoretical-framework)
 3. [Experimental Design](#experimental-design)
 4. [Game Mechanics](#game-mechanics)
-5. [Technical Architecture](#technical-architecture)
-6. [Deployment Guide](#deployment-guide)
-7. [Data Collection & Privacy](#data-collection--privacy)
-8. [For Researchers](#for-researchers)
-9. [License](#license)
+5. [Behavioral Metrics](#behavioral-metrics)
+6. [Technical Architecture](#technical-architecture)
+7. [Deployment Guide](#deployment-guide)
+8. [Data Collection & Privacy](#data-collection--privacy)
+9. [For Researchers](#for-researchers)
+10. [License](#license)
 
 ---
 
@@ -106,9 +107,11 @@ This ensures:
 
 **Secondary measures:**
 - Response time (decision latency in milliseconds)
+- **Hover time tracking** (hesitation/consideration behavior)
 - Heat accumulation (reputation/suspicion level)
 - Risk-taking behavior (speed choices, flee attempts)
 - Session completion rate (abandonment vs. completion)
+- **Frustration index** (permit application failures and abandons)
 
 ---
 
@@ -148,18 +151,37 @@ Officers have distinct personalities affecting their behavior:
 | **Zealot** | 0.0 | 1.0 | 0.1 | 0.8 |
 | **Shakedown** | 0.95 | 0.4 | 0.9 | 0.5 |
 
+### Dynamic Officer Dialogue
+
+Officers now use **history-aware dialogue** that references player behavior:
+
+- **High heat level**: Officers recognize players as known bribers ("You again? I've heard about you...")
+- **Multiple session bribes**: Officers mention being radioed ahead about bribery
+- **High frustration index**: Officers comment on the player looking worn down from permit troubles
+- **New players**: Officers occasionally give welcome dialogue
+
+This creates a more immersive experience while collecting data on how repeated corruption affects future interactions.
+
 ### Permit System (Bureaucracy Manipulation)
 
 **Low Bureaucracy (LR, LF):**
 - 2 simple steps
 - Clear requirements
 - Reasonable processing time
+- ~10% chance of random delay
 
 **High Bureaucracy (HR, HF):**
 - 5-8 complex steps
 - Ambiguous requirements ("Form B-7 requires notarization")
-- Random delays and rejections
+- **Random delays** (40% chance, 1-4 second wait times)
+- **Random rejections** (~15% chance per step after the first)
+- Frustration-inducing messages ("System Error", "Queue Timeout", "Records do not match")
 - Permits expire, requiring renewal
+
+The permit system tracks a **Frustration Index** calculated from:
+- Total permit application attempts
+- Application failures (system rejections)
+- Application abandons (user cancellations mid-process)
 
 ### Lives System
 
@@ -167,6 +189,55 @@ Players have 3 hearts (lives). Colliding with obstacles on the road costs 1 hear
 - Skill-based engagement (avoiding obstacles)
 - Risk-reward tradeoffs (faster = more obstacle danger)
 - Natural session endings (not just checkpoint failures)
+- **Screen shake effect** on collision for visual feedback
+
+### Sound System
+
+Optional synthesized sound effects (Web Audio API, no external files):
+- Success sounds for passing checkpoints
+- Error sounds for fines and rejections
+- Collision/crash sounds
+- Sneaky bribe sound
+- Settings toggle (defaults to off)
+
+---
+
+## Behavioral Metrics
+
+### Hover Time Tracking
+
+The game captures **hover time** on each negotiation button before the player makes their final choice. This reveals hesitation and temptation patterns:
+
+- Did the player hover over "Bribe" for 2 seconds before clicking "Show Permit"?
+- Did they consider "Flee" before ultimately choosing "Comply"?
+
+Tracked metrics per encounter:
+- `hoverTimeBribe`: Time hovering over bribe button (ms)
+- `hoverTimePermit`: Time hovering over show permit button (ms)
+- `hoverTimeArgue`: Time hovering over argue button (ms)
+- `hoverTimeBluff`: Time hovering over bluff button (ms)
+- `hoverTimeFlee`: Time hovering over flee button (ms)
+- `hoverTimeComply`: Time hovering over comply button (ms)
+
+### Response Time Analysis
+
+Each encounter records:
+- `responseTimeMs`: Total time from dialog appearing to action selection
+- Combined with hover data, reveals decision-making patterns
+
+### Frustration Index
+
+Player-level frustration calculated from permit bureaucracy experience:
+
+```javascript
+frustrationIndex = (failureRate * 0.6) + (abandonRate * 0.4)
+```
+
+Where:
+- `failureRate` = permit failures / total attempts
+- `abandonRate` = permit abandons / total attempts
+
+High frustration may correlate with increased bribery as players "give up" on legitimate compliance.
 
 ---
 
@@ -184,12 +255,12 @@ checkpoint_courier_web/
 │   ├── main.js             # Application entry point & UI
 │   ├── models.js           # Data models, enums, treatment logic
 │   ├── state.js            # Game state management (localStorage)
-│   ├── officerAI.js        # Officer decision engine
-│   ├── permits.js          # Permit/bureaucracy simulation
+│   ├── officerAI.js        # Officer decision engine & dynamic dialogue
+│   ├── permits.js          # Permit/bureaucracy simulation with delays/rejections
 │   ├── game.js             # 2D driving game (Canvas, emoji graphics)
 │   └── cloudUpload.js      # Data upload to Cloudflare Workers
 └── worker/
-    ├── index.js            # Cloudflare Worker (validation, storage)
+    ├── index.js            # Cloudflare Worker (validation, storage, suspicious data detection)
     └── wrangler.toml       # Worker configuration
 ```
 
@@ -199,6 +270,15 @@ checkpoint_courier_web/
 - **Coarsened Timestamps**: Stored at minute-level to reduce fingerprinting
 - **Local Persistence**: Game state saved to localStorage
 - **Deterministic Treatment**: Same UUID always yields same experimental condition
+- **Crash Recovery**: State saved immediately on crash to prevent refresh exploits
+
+### Consent Flow
+
+On first launch, players see a consent screen with two options:
+1. **"Play & Donate Data"**: Allows anonymous data collection for research
+2. **"Play in Private Mode"**: Disables data upload entirely
+
+Players can change this setting anytime in Settings.
 
 ### Data Flow
 
@@ -208,7 +288,7 @@ checkpoint_courier_web/
       ▼
 [Game Logic (JS)] ──► [localStorage]
       │
-      │ (session end)
+      │ (session end / page close)
       ▼
 [Cloudflare Worker] ──► [R2 Storage]
       │
@@ -250,12 +330,36 @@ Each uploaded session contains:
         "outcome": "accepted",
         "responseTimeMs": 3400,
         "hadPermit": false,
-        "heatLevel": 0.2
+        "heatLevel": 0.2,
+        "hoverTimeBribe": 1200,
+        "hoverTimePermit": 450,
+        "hoverTimeArgue": 0,
+        "hoverTimeBluff": 0,
+        "hoverTimeFlee": 300,
+        "hoverTimeComply": 0
       }
     ]
   }
 }
 ```
+
+### Suspicious Data Detection
+
+The Cloudflare Worker performs server-side validation to flag potentially cheated or bot-generated data:
+
+| Check | Flag | Severity |
+|-------|------|----------|
+| Completion < 10 seconds | `impossibly_fast_completion` | Critical |
+| Completion < 30 seconds | `very_fast_completion` | Warning |
+| Money gain > 500 | `excessive_money_gain` | Warning/Critical |
+| Math doesn't add up | `inconsistent_money_math` | Warning |
+| Bribes < $10 accepted | `implausibly_low_bribes` | Warning |
+| Response time < 100ms | `bot_like_response_times` | Critical |
+| Response time > 5 minutes | `session_tampering` | Warning |
+| No encounters recorded | `no_encounters_recorded` | Warning |
+| Checkpoints passed > total | `checkpoint_count_mismatch` | Critical |
+
+Each upload receives a `dataQuality` rating: `valid`, `suspicious`, or `flagged`.
 
 ---
 
@@ -318,6 +422,8 @@ https://your-domain.pages.dev/?debug=1
 | Treatment code | Experimental analysis | Non-identifying |
 | Checkpoint decisions | Primary dependent variable | Non-identifying |
 | Response times | Secondary measure | Non-identifying |
+| Hover times | Hesitation/temptation patterns | Non-identifying |
+| Frustration index | Bureaucracy experience | Non-identifying |
 | Session metadata | Data quality | Non-identifying |
 
 ### What We DON'T Collect
@@ -336,6 +442,7 @@ The Cloudflare Worker validates all uploads:
 - **Schema validation**: Rejects malformed data
 - **Value range checks**: Numeric fields clamped to valid ranges
 - **Sanitization**: All strings stripped of special characters
+- **Suspicious data flagging**: Bot detection and cheating prevention
 
 ---
 
@@ -367,8 +474,10 @@ bribe_rate ~ bureaucracy * enforcement + (1|player_id)
 **Secondary Analyses:**
 - Permit acquisition survival curves by treatment
 - Response time analysis (decision difficulty)
+- **Hover time analysis** (temptation vs. action)
 - Heat accumulation trajectories
 - Session-level completion rates
+- **Frustration index correlation** with bribery rates
 
 ### Citation
 
@@ -380,13 +489,14 @@ If you use this data in research, please cite:
 
 ### Ethical Considerations
 
-This instrument is designed for "in the wild" data collection without explicit experimental consent. Key ethical safeguards:
+This instrument is designed for "in the wild" data collection. Key ethical safeguards:
 
-1. **No deception about data collection**: App store disclosures will note data collection
-2. **Opt-in data donation**: Players can choose private mode
-3. **No PII**: Truly anonymous participation possible
-4. **Public benefit**: Data freely available to research community
-5. **IRB-ready**: Design follows principles for minimal-risk behavioral research
+1. **Transparent consent flow**: Players explicitly choose to donate data or play privately
+2. **No deception about collection**: App store disclosures note data collection
+3. **Opt-in data donation**: Players can choose private mode at any time
+4. **No PII**: Truly anonymous participation possible
+5. **Public benefit**: Data freely available to research community
+6. **IRB-ready**: Design follows principles for minimal-risk behavioral research
 
 ---
 
@@ -397,6 +507,11 @@ Works in all modern browsers with JavaScript module support:
 - Firefox 60+
 - Safari 11+
 - Edge 79+
+
+Mobile support includes:
+- Touch controls (swipe gestures for lane changes)
+- Dedicated lane change buttons
+- Exit button for stuck games
 
 ---
 
