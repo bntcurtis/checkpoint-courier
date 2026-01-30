@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkpoint Courier</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚚</text></svg>">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Home Screen -->
+        <div id="home-screen" class="screen active">
+            <header class="game-header">
+                <h1>Checkpoint Courier</h1>
+                <div class="player-stats">
+                    <span class="stat">💰 <span id="player-money">500</span></span>
+                    <span class="stat">📦 <span id="player-deliveries">0</span></span>
+                    <span class="stat" title="Player ID">🆔 <span id="player-id">--------</span></span>
+                </div>
+            </header>
+
+            <main class="home-content">
+                <div class="menu-buttons">
+                    <button id="btn-new-delivery" class="btn btn-primary btn-large">
+                        🚚 New Delivery
+                    </button>
+                    <button id="btn-permits" class="btn btn-secondary">
+                        📋 Permits
+                    </button>
+                    <button id="btn-upgrades" class="btn btn-secondary">
+                        🔧 Upgrades
+                    </button>
+                    <button id="btn-settings" class="btn btn-tertiary">
+                        ⚙️ Settings
+                    </button>
+                </div>
+
+                <div id="impound-notice" class="notice notice-warning hidden">
+                    <strong>🚫 Truck Impounded!</strong>
+                    <p>Complete <span id="impound-remaining">0</span> more deliveries (on foot) to recover your truck.</p>
+                </div>
+            </main>
+        </div>
+
+        <!-- Delivery Selection Screen -->
+        <div id="delivery-screen" class="screen">
+            <header class="screen-header">
+                <button class="btn-back" data-target="home-screen">← Back</button>
+                <h2>Select Delivery</h2>
+                <span class="header-stat">💰 <span class="player-money-display">500</span></span>
+            </header>
+
+            <main class="delivery-content">
+                <div id="delivery-options" class="delivery-grid">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </main>
+        </div>
+
+        <!-- Permits Screen -->
+        <div id="permits-screen" class="screen">
+            <header class="screen-header">
+                <button class="btn-back" data-target="home-screen">← Back</button>
+                <h2>Permits Office</h2>
+                <span class="header-stat">💰 <span class="player-money-display">500</span></span>
+            </header>
+
+            <main class="permits-content">
+                <section class="current-permits">
+                    <h3>Your Permits</h3>
+                    <div id="permit-inventory" class="permit-list">
+                        <p class="empty-state">No permits held</p>
+                    </div>
+                </section>
+
+                <section class="available-permits">
+                    <h3>Available Permits</h3>
+                    <div id="permit-shop" class="permit-list">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- Upgrades Screen -->
+        <div id="upgrades-screen" class="screen">
+            <header class="screen-header">
+                <button class="btn-back" data-target="home-screen">← Back</button>
+                <h2>Truck Upgrades</h2>
+                <span class="header-stat">💰 <span class="player-money-display">500</span></span>
+            </header>
+
+            <main class="upgrades-content">
+                <div id="upgrades-grid" class="upgrades-grid">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </main>
+        </div>
+
+        <!-- Settings Screen -->
+        <div id="settings-screen" class="screen">
+            <header class="screen-header">
+                <button class="btn-back" data-target="home-screen">← Back</button>
+                <h2>Settings</h2>
+            </header>
+
+            <main class="settings-content">
+                <section class="settings-section">
+                    <h3>Research Participation</h3>
+                    <p class="info-text">
+                        This game collects anonymized gameplay data for academic research
+                        on decision-making. No personal information is collected.
+                    </p>
+                    <div class="setting-row">
+                        <label for="consent-toggle">Data Collection</label>
+                        <input type="checkbox" id="consent-toggle" checked>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h3>Your Data</h3>
+                    <p class="info-text">
+                        Player ID: <code id="settings-player-id">--------</code><br>
+                        Treatment: <code id="settings-treatment">--</code>
+                    </p>
+                    <button id="btn-export-data" class="btn btn-secondary">
+                        📤 Export My Data
+                    </button>
+                    <button id="btn-reset-data" class="btn btn-danger">
+                        🗑️ Reset All Data
+                    </button>
+                </section>
+
+                <!-- Hidden by default, shown with ?debug=1 URL parameter -->
+                <section id="diagnostics-section" class="settings-section hidden">
+                    <h3>Cloud Upload Diagnostics</h3>
+                    <p class="info-text">
+                        Test the data upload connection to verify your gameplay data is being collected.
+                    </p>
+                    <button id="btn-test-upload" class="btn btn-secondary">
+                        🔬 Test Upload Connection
+                    </button>
+                    <div id="upload-diagnostics" class="diagnostics-output hidden">
+                        <pre id="diagnostics-result"></pre>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h3>About</h3>
+                    <p class="info-text">
+                        Checkpoint Courier is a research instrument developed to study
+                        decision-making under institutional constraints. Your gameplay
+                        helps advance scientific understanding of human behavior.
+                    </p>
+                    <p class="info-text version">Version 1.0.0</p>
+                </section>
+            </main>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="screen">
+            <header class="game-hud">
+                <div class="hud-left">
+                    <span class="hud-stat">💰 <span class="player-money-display">500</span></span>
+                    <span class="hud-stat" id="delivery-reward">📦 +<span>0</span></span>
+                </div>
+                <div class="hud-center">
+                    <span id="checkpoint-counter">Checkpoint 0/0</span>
+                </div>
+                <div class="hud-right">
+                    <span id="lives-display">❤️❤️❤️</span>
+                    <span id="speed-display">🚚 0 km/h</span>
+                </div>
+            </header>
+
+            <canvas id="game-canvas"></canvas>
+
+            <div id="game-controls" class="game-controls">
+                <button id="btn-accelerate" class="control-btn">⬆️ Accelerate</button>
+                <button id="btn-brake" class="control-btn">⬇️ Brake</button>
+            </div>
+        </div>
+
+        <!-- Negotiation Dialog -->
+        <div id="negotiation-dialog" class="dialog-overlay hidden">
+            <div class="dialog">
+                <div class="dialog-header">
+                    <h3 id="officer-title">Checkpoint Officer</h3>
+                    <span id="officer-personality" class="badge">By the Book</span>
+                </div>
+
+                <div class="dialog-body">
+                    <p id="officer-dialogue" class="dialogue-text">
+                        "Pull over. License and permits, please."
+                    </p>
+
+                    <div id="situation-info" class="situation-info">
+                        <div class="info-row">
+                            <span>Your Speed:</span>
+                            <span id="neg-speed">45 km/h</span>
+                        </div>
+                        <div class="info-row">
+                            <span>Permit Status:</span>
+                            <span id="neg-permit-status">Valid</span>
+                        </div>
+                        <div class="info-row">
+                            <span>Potential Fine:</span>
+                            <span id="neg-fine-amount">150</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dialog-actions" id="negotiation-actions">
+                    <button class="btn btn-action" data-action="show_permit">
+                        📋 Show Permit
+                    </button>
+                    <button class="btn btn-action" data-action="bribe">
+                        💰 Offer Bribe (<span id="bribe-suggestion">50</span>)
+                    </button>
+                    <button class="btn btn-action" data-action="argue">
+                        🗣️ Argue
+                    </button>
+                    <button class="btn btn-action" data-action="bluff">
+                        🎭 Bluff
+                    </button>
+                    <button class="btn btn-action" data-action="flee">
+                        🏃 Flee
+                    </button>
+                    <button class="btn btn-action" data-action="comply">
+                        ✅ Pay Fine
+                    </button>
+                    <button class="btn btn-action" data-action="report">
+                        📢 Report Corruption
+                    </button>
+                </div>
+
+                <div id="negotiation-result" class="negotiation-result hidden">
+                    <p id="result-text"></p>
+                    <button id="btn-continue" class="btn btn-primary">Continue</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delivery Complete Dialog -->
+        <div id="delivery-complete-dialog" class="dialog-overlay hidden">
+            <div class="dialog">
+                <div class="dialog-header">
+                    <h3>Delivery Complete!</h3>
+                </div>
+
+                <div class="dialog-body">
+                    <div class="delivery-summary">
+                        <div class="summary-row">
+                            <span>Base Reward:</span>
+                            <span id="summary-base-reward">+200</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Fines Paid:</span>
+                            <span id="summary-fines">-0</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Bribes Paid:</span>
+                            <span id="summary-bribes">-0</span>
+                        </div>
+                        <div class="summary-row total">
+                            <span>Net Earnings:</span>
+                            <span id="summary-total">+200</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dialog-actions">
+                    <button id="btn-finish-delivery" class="btn btn-primary">
+                        Return Home
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tutorial Dialog -->
+        <div id="tutorial-dialog" class="dialog-overlay hidden">
+            <div class="dialog dialog-large">
+                <div class="dialog-header">
+                    <h3>Welcome to Checkpoint Courier!</h3>
+                </div>
+
+                <div class="dialog-body">
+                    <div class="tutorial-content">
+                        <p>You're a courier trying to make deliveries in a region with...
+                        <em>creative</em> bureaucracy and checkpoint enforcement.</p>
+
+                        <h4>How to Play:</h4>
+                        <ul>
+                            <li>📦 <strong>Select deliveries</strong> - Higher risk = higher reward</li>
+                            <li>📋 <strong>Get permits</strong> - Required for legal passage</li>
+                            <li>🚚 <strong>Drive carefully</strong> - Speed affects checkpoint outcomes</li>
+                            <li>🛑 <strong>Handle checkpoints</strong> - Officers have different personalities</li>
+                            <li>🔧 <strong>Upgrade your truck</strong> - Better equipment, better outcomes</li>
+                        </ul>
+
+                        <h4>At Checkpoints:</h4>
+                        <p>You'll encounter officers with different attitudes. You can show
+                        your permit, pay fines, negotiate... or try other approaches.
+                        Choose wisely - your reputation follows you.</p>
+                    </div>
+                </div>
+
+                <div class="dialog-actions">
+                    <button id="btn-start-tutorial" class="btn btn-primary">
+                        Start Playing
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Permit Application Dialog (for high bureaucracy) -->
+        <div id="permit-application-dialog" class="dialog-overlay hidden">
+            <div class="dialog dialog-large">
+                <div class="dialog-header">
+                    <h3 id="permit-app-title">Permit Application</h3>
+                </div>
+
+                <div class="dialog-body">
+                    <div id="permit-steps" class="permit-steps">
+                        <!-- Populated by JavaScript -->
+                    </div>
+
+                    <div id="permit-progress" class="permit-progress">
+                        <div class="progress-bar">
+                            <div id="permit-progress-fill" class="progress-fill"></div>
+                        </div>
+                        <span id="permit-progress-text">Step 1 of 5</span>
+                    </div>
+                </div>
+
+                <div class="dialog-actions">
+                    <button id="btn-cancel-permit" class="btn btn-secondary">
+                        Cancel
+                    </button>
+                    <button id="btn-next-permit-step" class="btn btn-primary">
+                        Next Step
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Modules -->
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
