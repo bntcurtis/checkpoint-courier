@@ -91,13 +91,17 @@ class GameState {
     // ========================================
 
     updateMoney(delta) {
-        this.player.money += delta;
+        const d = Number(delta);
+        if (!Number.isFinite(d)) return;
+        this.player.money += d;
         this.save();
         this.emit('moneyChanged', this.player.money);
     }
 
     setMoney(amount) {
-        this.player.money = amount;
+        const a = Number(amount);
+        if (!Number.isFinite(a)) return;
+        this.player.money = a;
         this.save();
         this.emit('moneyChanged', this.player.money);
     }
@@ -220,14 +224,17 @@ class GameState {
     }
 
     setSoundEnabled(value) {
-        this.player.soundEnabled = value;
+        this.player.soundEnabled = Boolean(value);
         this.save();
-        this.emit('soundChanged', value);
+        this.emit('soundChanged', this.player.soundEnabled);
     }
 
     setSoundVolume(value) {
-        this.player.soundVolume = value;
+        const v = Math.max(0, Math.min(100, Number(value)));
+        if (!Number.isFinite(v)) return;
+        this.player.soundVolume = v;
         this.save();
+        this.emit('soundVolumeChanged', v);
     }
 
     completeTutorial() {

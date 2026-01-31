@@ -17,16 +17,13 @@ const APP_VERSION = '1.0.0';
 // Store last upload result for diagnostics
 let lastUploadResult = null;
 
-/**
- * Upload session data to cloud
- */
-export async function uploadSession(session) {
-    // Check consent
-    if (!gameState.player.consentGiven) {
-        console.log('Data upload skipped: consent not given');
-        return { success: false, reason: 'no_consent' };
-    }
+// Prevent overlapping retry loops (setInterval + visibilitychange + module-load timer)
+let isProcessingPending = false;
 
+/**
+ * Build a consistent upload payload for a given session
+ */
+function buildSessionPayload(session, uploadTrigger = null) {
     const payload = {
         // Schema versioning for data format identification
         schemaVersion: SCHEMA_VERSION,
@@ -41,45 +38,42 @@ export async function uploadSession(session) {
         platform: 'web',
     };
 
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT);
+    if (uploadTrigger) {
+        payload.uploadTrigger = uploadTrigger;
+    }
 
-        const response = await fetch(UPLOAD_ENDPOINT, {
+    return payload;
+}
+
+/**
+ * Retry policy for HTTP responses
+ */
+function shouldRetryStatus(status) {
+    // Retry on transient issues (timeout/rate limiting/server errors)
+    return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+/**
+ * Low-level POST helper with timeout and standard headers
+ */
+async function postPayload(payload, timeoutMs = UPLOAD_TIMEOUT) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        return await fetch(UPLOAD_ENDPOINT, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-App-Attest': APP_SECRET,
-                'X-Player-UUID': gameState.player.id,
-                'X-Treatment-ID': gameState.player.treatment,
+                'X-Player-UUID': payload.playerId || gameState.player.id,
+                'X-Treatment-ID': payload.treatmentCode || gameState.player.treatment,
             },
             body: JSON.stringify(payload),
             signal: controller.signal,
         });
-
+    } finally {
         clearTimeout(timeoutId);
-
-        if (response.ok) {
-            console.log('Session uploaded successfully');
-            return { success: true };
-        } else {
-            // Queue for retry on server errors
-            if (response.status >= 500) {
-                queueForRetry(payload);
-            }
-            console.error('Upload failed:', response.status);
-            return { success: false, status: response.status };
-        }
-    } catch (error) {
-        if (error.name === 'AbortError') {
-            console.error('Upload timed out');
-            queueForRetry(payload);
-            return { success: false, reason: 'timeout' };
-        }
-
-        console.error('Upload error:', error);
-        queueForRetry(payload);
-        return { success: false, reason: 'network_error' };
     }
 }
 
@@ -91,46 +85,103 @@ function queueForRetry(payload) {
 }
 
 /**
+ * Queue a session payload for later upload (sync, unload-safe)
+ */
+export function queueSessionForUpload(session, uploadTrigger = 'manual') {
+    // Check consent
+    if (!gameState.player?.consentGiven) {
+        console.log('Data queue skipped: consent not given');
+        return { queued: false, reason: 'no_consent' };
+    }
+
+    const payload = buildSessionPayload(session, uploadTrigger);
+    queueForRetry(payload);
+    return { queued: true };
+}
+
+/**
+ * Upload session data to cloud
+ */
+export async function uploadSession(session, options = {}) {
+    // Check consent
+    if (!gameState.player?.consentGiven) {
+        console.log('Data upload skipped: consent not given');
+        return { success: false, reason: 'no_consent' };
+    }
+
+    const payload = buildSessionPayload(session, options.uploadTrigger || null);
+
+    try {
+        const response = await postPayload(payload, UPLOAD_TIMEOUT);
+
+        if (response.ok) {
+            console.log('Session uploaded successfully');
+            lastUploadResult = { success: true, httpStatus: response.status, timestamp: new Date().toISOString() };
+            return { success: true };
+        }
+
+        // Queue for retry on transient errors
+        if (shouldRetryStatus(response.status)) {
+            queueForRetry(payload);
+        }
+
+        console.error('Upload failed:', response.status);
+        lastUploadResult = { success: false, httpStatus: response.status, timestamp: new Date().toISOString() };
+        return { success: false, status: response.status };
+    } catch (error) {
+        if (error?.name === 'AbortError') {
+            console.error('Upload timed out');
+            queueForRetry(payload);
+            lastUploadResult = { success: false, reason: 'timeout', timestamp: new Date().toISOString() };
+            return { success: false, reason: 'timeout' };
+        }
+
+        console.error('Upload error:', error);
+        queueForRetry(payload);
+        lastUploadResult = { success: false, reason: 'network_error', timestamp: new Date().toISOString() };
+        return { success: false, reason: 'network_error' };
+    }
+}
+
+/**
  * Process pending uploads
  */
 export async function processPendingUploads() {
-    if (!gameState.player.consentGiven) return;
+    if (!gameState.player?.consentGiven) return;
+    if (isProcessingPending) return;
 
-    const pending = [...gameState.pendingUploads];
-    if (pending.length === 0) return;
+    const queue = gameState.pendingUploads;
+    if (!Array.isArray(queue) || queue.length === 0) return;
 
-    console.log(`Processing ${pending.length} pending uploads...`);
+    isProcessingPending = true;
+    try {
+        console.log(`Processing ${queue.length} pending uploads...`);
 
-    for (let i = 0; i < pending.length; i++) {
-        const payload = pending[i];
-
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT);
-
-            const response = await fetch(UPLOAD_ENDPOINT, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-App-Attest': APP_SECRET,
-                    'X-Player-UUID': payload.playerId,
-                    'X-Treatment-ID': payload.treatmentCode,
-                },
-                body: JSON.stringify(payload),
-                signal: controller.signal,
-            });
-
-            clearTimeout(timeoutId);
-
-            if (response.ok) {
-                // Remove from queue
-                gameState.clearUpload(i - (pending.length - gameState.pendingUploads.length));
-                console.log('Pending upload successful');
+        // Iterate backwards so we can safely splice successful uploads out by index
+        for (let i = queue.length - 1; i >= 0; i--) {
+            const payload = queue[i];
+            if (!payload) {
+                gameState.clearUpload(i);
+                continue;
             }
-        } catch (error) {
-            console.error('Pending upload failed:', error);
-            // Keep in queue for next attempt
+
+            try {
+                const response = await postPayload(payload, UPLOAD_TIMEOUT);
+
+                if (response.ok) {
+                    gameState.clearUpload(i);
+                    console.log('Pending upload successful');
+                } else {
+                    // Keep queued for future retry, but remember the last status for diagnostics
+                    lastUploadResult = { success: false, httpStatus: response.status, timestamp: new Date().toISOString() };
+                }
+            } catch (error) {
+                console.error('Pending upload failed:', error);
+                // Keep in queue for next attempt
+            }
         }
+    } finally {
+        isProcessingPending = false;
     }
 }
 
@@ -183,22 +234,7 @@ export async function testUploadEndpoint() {
         // Step 1: Check if endpoint is reachable
         results.steps.push({ step: 'Starting test...', status: 'ok' });
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-        const response = await fetch(UPLOAD_ENDPOINT, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-App-Attest': APP_SECRET,
-                'X-Player-UUID': testPayload.playerId,
-                'X-Treatment-ID': testPayload.treatmentCode,
-            },
-            body: JSON.stringify(testPayload),
-            signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
+        const response = await postPayload(testPayload, 10000);
 
         results.httpStatus = response.status;
         results.httpStatusText = response.statusText;
@@ -246,21 +282,21 @@ export async function testUploadEndpoint() {
         }
 
     } catch (error) {
-        if (error.name === 'AbortError') {
+        if (error?.name === 'AbortError') {
             results.steps.push({ step: 'Request timed out', status: 'error' });
             results.success = false;
             results.diagnosis = 'The endpoint did not respond within 10 seconds. Worker may be down or misconfigured.';
-        } else if (error.message.includes('Failed to fetch')) {
+        } else if (String(error?.message || '').includes('Failed to fetch')) {
             results.steps.push({ step: 'Network error', status: 'error' });
             results.success = false;
             results.diagnosis = 'Could not reach the endpoint. Possible causes: CORS issue, DNS error, or worker not deployed.';
             results.corsNote = 'If this is a CORS error, the Cloudflare Worker needs to return Access-Control-Allow-Origin headers.';
         } else {
-            results.steps.push({ step: `Error: ${error.message}`, status: 'error' });
+            results.steps.push({ step: `Error: ${error?.message || 'Unknown error'}`, status: 'error' });
             results.success = false;
-            results.diagnosis = `Unexpected error: ${error.message}`;
+            results.diagnosis = `Unexpected error: ${error?.message || 'Unknown error'}`;
         }
-        results.error = error.message;
+        results.error = error?.message;
     }
 
     lastUploadResult = results;

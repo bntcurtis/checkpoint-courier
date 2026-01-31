@@ -27,7 +27,7 @@ import {
     calculateExpectedBribe,
 } from './officerAI.js';
 import { permitService } from './permits.js';
-import { uploadSession, exportPlayerData, processPendingUploads, testUploadEndpoint } from './cloudUpload.js';
+import { uploadSession, exportPlayerData, processPendingUploads, testUploadEndpoint, queueSessionForUpload } from './cloudUpload.js';
 
 // ============================================
 // DOM REFERENCES
@@ -78,6 +78,98 @@ function resetHoverTracking() {
 // Check for debug mode via URL parameter
 const urlParams = new URLSearchParams(window.location.search);
 const debugMode = urlParams.get('debug') === '1';
+
+// ============================================
+// SESSION AGGREGATION HELPERS
+// ============================================
+
+function safeNumber(value, fallback = 0) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Compute session-level aggregates from checkpoint encounters.
+ * This avoids relying on UI counters that can drift if logic changes.
+ */
+function computeSessionAggregates(session) {
+    const encounters = session?.encounters || [];
+
+    let totalFines = 0;
+    let totalBribesOffered = 0;
+    let totalBribesAccepted = 0;
+    let totalBribesPaid = 0;
+    let bribeAttempts = 0;
+    let totalCheckpointCosts = 0;
+
+    for (const encRaw of encounters) {
+        const enc = encRaw?.toJSON ? encRaw.toJSON() : encRaw;
+        if (!enc) continue;
+
+        const fine = Math.max(0, safeNumber(enc.fineAmount, 0));
+        const bribeOffered = Math.max(0, safeNumber(enc.bribeOffered, 0));
+        const moneyChange = safeNumber(enc.moneyChange, 0); // negative = cost
+
+        totalFines += fine;
+
+        if (moneyChange < 0) {
+            totalCheckpointCosts += Math.abs(moneyChange);
+        }
+
+        const isBribeAttempt =
+            enc.playerAction === NegotiationAction.BRIBE ||
+            bribeOffered > 0;
+
+        if (isBribeAttempt) {
+            bribeAttempts += 1;
+            totalBribesOffered += bribeOffered;
+
+            if (enc.outcome === 'bribe_accepted') {
+                totalBribesAccepted += bribeOffered;
+            }
+
+            // Infer bribes actually paid (if moneyChange is recorded)
+            // bribePaid ≈ checkpointCost - fine (only for bribe actions)
+            const checkpointCost = Math.max(0, -moneyChange);
+            if (checkpointCost > 0) {
+                const inferredPaid = Math.max(0, checkpointCost - fine);
+                totalBribesPaid += inferredPaid;
+            } else if (enc.outcome === 'bribe_accepted') {
+                // Backward-compatible fallback if moneyChange is missing
+                totalBribesPaid += bribeOffered;
+            }
+        }
+    }
+
+    return {
+        totalFines: Math.round(totalFines),
+        totalBribesOffered: Math.round(totalBribesOffered),
+        totalBribesAccepted: Math.round(totalBribesAccepted),
+        totalBribesPaid: Math.round(totalBribesPaid),
+        bribeAttempts,
+        totalCheckpointCosts: Math.round(totalCheckpointCosts),
+    };
+}
+
+/**
+ * Apply aggregate fields onto the session object before upload/export.
+ */
+function applySessionAggregates(session) {
+    if (!session) return;
+
+    const agg = computeSessionAggregates(session);
+
+    // Backward-compatible fields
+    session.totalFines = agg.totalFines;
+    session.totalBribes = agg.totalBribesPaid;
+
+    // New, richer fields (schema is forward-compatible)
+    session.totalBribesOffered = agg.totalBribesOffered;
+    session.totalBribesAccepted = agg.totalBribesAccepted;
+    session.bribeAttempts = agg.bribeAttempts;
+    session.totalCheckpointCosts = agg.totalCheckpointCosts;
+}
+
 
 // ============================================
 // INITIALIZATION
@@ -248,7 +340,7 @@ function updateDeliveryCount() {
 function updatePlayerId() {
     const id = gameState.player.anonymousId;
     document.getElementById('player-id').textContent = id;
-    document.getElementById('settings-player-id').textContent = gameState.player.id;
+    document.getElementById('settings-player-id').textContent = id;
     document.getElementById('settings-treatment').textContent = gameState.player.treatment;
 }
 
@@ -377,11 +469,15 @@ function initializeDrivingGame(delivery) {
     const canvas = document.getElementById('game-canvas');
     drivingGame = new DrivingGame(canvas);
 
+    // Reset speed in state for this run
+    gameState.setGameSpeed(0);
+
     // Set up callbacks
     drivingGame.onCheckpoint = handleCheckpoint;
     drivingGame.onComplete = handleDeliveryComplete;
     drivingGame.onSpeedChange = (speed) => {
-        document.getElementById('speed-display').textContent = `🚚 ${speed} km/h`;
+        gameState.setGameSpeed(speed);
+        document.getElementById('speed-display').textContent = `🚚 ${Math.round(speed)} km/h`;
     };
     drivingGame.onLivesChange = (lives) => {
         updateLivesDisplay(lives);
@@ -581,11 +677,10 @@ function handleExitGame() {
         gameState.endSession('abandoned');
 
         // Upload the partial session data
-        session.totalBribes = gameState.sessionBribeAmount || 0;
-        session.totalFines = gameState.sessionFineAmount || 0;
+        applySessionAggregates(session);
 
         console.log(`📤 Uploading abandoned session (user exited)...`);
-        uploadSession(session)
+        uploadSession(session, { uploadTrigger: 'exit_to_menu' })
             .then(result => {
                 if (result.success) {
                     console.log('✅ Session data uploaded');
@@ -781,6 +876,7 @@ function handleNegotiationAction(action) {
         bribeOffered: result.bribeAmount,
         bribeExpected: expectedBribe,
         fineAmount: result.fineAmount,
+        moneyChange: result.moneyChange,
         playerSpeed: context.playerSpeed,
         hadPermit: context.hasPermit,
         hadContraband: context.hasContraband,
@@ -908,11 +1004,10 @@ function handleGameOver() {
         gameState.endSession('abandoned');
 
         // Upload the session data
-        session.totalBribes = gameState.sessionBribeAmount || 0;
-        session.totalFines = gameState.sessionFineAmount || 0;
+        applySessionAggregates(session);
 
         console.log(`📤 Auto-uploading abandoned session...`);
-        uploadSession(session)
+        uploadSession(session, { uploadTrigger: 'game_over' })
             .then(result => {
                 if (result.success) {
                     console.log('✅ Session data uploaded successfully');
@@ -986,21 +1081,23 @@ function handleDeliveryComplete(wasImpounded = false) {
     const outcome = wasImpounded ? 'impounded' : 'completed';
     gameState.endSession(outcome);
 
+    // Derive consistent totals from encounters before showing summary or upload
+    if (session) {
+        applySessionAggregates(session);
+    }
+
     // Show summary
-    showDeliverySummary(delivery, wasImpounded);
+    showDeliverySummary(delivery, wasImpounded, session);
 
     // AUTOMATIC UPLOAD: Upload session data at end of every delivery
     if (session) {
-        // Add final session stats before upload
-        session.totalBribes = gameState.sessionBribeAmount;
-        session.totalFines = gameState.sessionFineAmount;
-
+        // Add final session stats before upload (already computed above)
         console.log(`📤 Auto-uploading session data...`);
         console.log(`   Session ID: ${session.id}`);
         console.log(`   Encounters: ${session.encounters?.length || 0}`);
         console.log(`   Outcome: ${session.outcome}`);
 
-        uploadSession(session)
+        uploadSession(session, { uploadTrigger: 'delivery_end' })
             .then(result => {
                 if (result.success) {
                     console.log('✅ Session data uploaded successfully');
@@ -1016,7 +1113,7 @@ function handleDeliveryComplete(wasImpounded = false) {
     }
 }
 
-function showDeliverySummary(delivery, wasImpounded) {
+function showDeliverySummary(delivery, wasImpounded, session) {
     const dialog = document.getElementById('delivery-complete-dialog');
 
     // Always reset the title to normal (in case it was changed by game over)
@@ -1026,8 +1123,8 @@ function showDeliverySummary(delivery, wasImpounded) {
     }
 
     const baseReward = wasImpounded ? 0 : (delivery?.getEffectiveReward(gameState.player) || 0);
-    const totalFines = gameState.sessionFineAmount;
-    const totalBribes = gameState.sessionBribeAmount;
+    const totalFines = session?.totalFines ?? gameState.sessionFineAmount;
+    const totalBribes = session?.totalBribes ?? gameState.sessionBribeAmount;
     const netEarnings = baseReward - totalFines - totalBribes;
 
     document.getElementById('summary-base-reward').textContent = wasImpounded ? '0 (Impounded)' : `+${baseReward}`;
@@ -1449,43 +1546,32 @@ setInterval(() => {
     processPendingUploads();
 }, 60000); // Every minute
 
-// BACKUP: Try to upload any in-progress session if user closes/navigates away
+// BACKUP: Queue any in-progress session if user closes/navigates away
 window.addEventListener('beforeunload', () => {
-    // Only upload if user has given consent
-    if (gameState.player?.consentGiven === true && gameState.currentSession) {
-        const session = gameState.currentSession;
-        session.outcome = 'abandoned';
-        // Use setEndTime for consistent timestamp coarsening
-        if (session.setEndTime) {
-            session.setEndTime();
-        } else {
-            session.endTime = new Date().toISOString();
-        }
-        session.totalBribes = gameState.sessionBribeAmount;
-        session.totalFines = gameState.sessionFineAmount;
+    try {
+        // Only queue if user has given consent
+        if (gameState.player?.consentGiven === true && gameState.currentSession) {
+            const session = gameState.currentSession;
+            session.outcome = 'abandoned';
 
-        // Use sendBeacon for reliable delivery during page unload
-        const payload = JSON.stringify({
-            schemaVersion: '1.1.0',
-            appVersion: '1.0.0',
-            playerId: gameState.player.id,
-            treatmentCode: gameState.player.treatment,
-            session: session.toJSON ? session.toJSON() : session,
-            timestamp: new Date().toISOString(),
-            platform: 'web',
-            uploadTrigger: 'beforeunload',
-        });
+            // Use setEndTime for consistent timestamp coarsening
+            if (session.setEndTime) {
+                session.setEndTime();
+            } else {
+                session.endTime = new Date().toISOString();
+            }
 
-        // sendBeacon is designed for this - it survives page close
-        if (navigator.sendBeacon) {
-            const blob = new Blob([payload], { type: 'application/json' });
-            navigator.sendBeacon('https://checkpoint-ingest.bntcurtis.workers.dev/', blob);
-            console.log('📤 Emergency session upload via sendBeacon');
+            // Derive consistent totals from encounters
+            applySessionAggregates(session);
+
+            // Queue synchronously (unload-safe). Upload happens on next app load / interval.
+            queueSessionForUpload(session, 'beforeunload');
+            console.log('📤 Queued emergency session upload (beforeunload)');
         }
+    } catch (e) {
+        // Avoid throwing during unload
+        console.warn('beforeunload emergency queue failed:', e);
     }
-
-    // Also process any pending uploads (these are already consent-checked when queued)
-    processPendingUploads();
 });
 
 // Also try on visibility change (mobile browsers)

@@ -522,6 +522,8 @@ export class CheckpointEncounter {
         this.bribeOffered = data.bribeOffered || 0;
         this.bribeExpected = data.bribeExpected || 0;
         this.fineAmount = data.fineAmount || 0;
+        // Net money change from this encounter (negative = cost)
+        this.moneyChange = data.moneyChange ?? 0;
         this.playerSpeed = data.playerSpeed;
         this.hadPermit = data.hadPermit;
         this.hadContraband = data.hadContraband;
@@ -567,6 +569,11 @@ export class DeliverySession {
         this.encounters = data.encounters || [];
         this.totalBribes = data.totalBribes || 0;
         this.totalFines = data.totalFines || 0;
+        // Optional richer aggregates (filled in by main.js before upload)
+        this.totalBribesOffered = data.totalBribesOffered ?? null;
+        this.totalBribesAccepted = data.totalBribesAccepted ?? null;
+        this.bribeAttempts = data.bribeAttempts ?? null;
+        this.totalCheckpointCosts = data.totalCheckpointCosts ?? null;
         this.hadContraband = data.hadContraband || false;
         // Duration in milliseconds (more useful than precise timestamps for research)
         this.durationMs = data.durationMs || null;
