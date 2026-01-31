@@ -23,7 +23,7 @@ A gamified behavioral economics research instrument for studying how institution
 
 ### The Real-World Phenomenon
 
-This project was inspired by observations of governance and corruption dynamics in Vietnam:
+This project was inspired by the developer's personal observations of governance and corruption dynamics while living in Vietnam in the early 2000s:
 
 > *The nature of the Vietnamese communist party's bureaucracy meant that it was very difficult for the average Vietnamese citizen to get a driver's license, although most Vietnamese people owned a motorbike—often their most valuable asset. Speed limits were officially much lower than most people typically drove. Occasionally local police would do enforcement "blitzes," stopping drivers for speeding when they were just going the speed of surrounding traffic. Usually when these drivers got pulled over, they were unable to present a valid driver's license. Because the police officers themselves were underpaid, they would often solicit and accept bribes from drivers who were pulled over for speeding and licensing infractions. Drivers who were unable or unwilling to pay bribes would have their motorbikes confiscated. Because of the bureaucracy, these motorbikes were usually impossible for a local Vietnamese citizen to get out of impoundment, meaning that their most valuable asset could be taken by the government, seemingly arbitrarily.*
 
