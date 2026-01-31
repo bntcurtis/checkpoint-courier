@@ -9,8 +9,41 @@
 </head>
 <body>
     <div id="app">
+        <!-- Consent Screen (shown on first launch) -->
+        <div id="consent-screen" class="screen">
+            <div class="consent-container">
+                <h1>🚚 Checkpoint Courier</h1>
+                <p class="tagline">A Dystopian Delivery Sim</p>
+
+                <div class="consent-info">
+                    <p>Navigate checkpoints, manage permits, and make tough decisions in a world where the rules aren't always fair.</p>
+
+                    <div class="research-notice">
+                        <h3>📊 Research Project</h3>
+                        <p>This game is part of open behavioral dataset project on economic decision-making. The app collects <strong>anonymous gameplay data</strong> (choices, timing, outcomes) to understand how people navigate complex systems.</p>
+                        <ul>
+                            <li>No personal information collected</li>
+                            <li>Data is anonymized and aggregated</li>
+                            <li>Results shared with the research community</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="consent-buttons">
+                    <button id="btn-consent-donate" class="btn btn-primary btn-large">
+                        🎮 Play & Donate Data
+                    </button>
+                    <button id="btn-consent-private" class="btn btn-secondary">
+                        🔒 Play in Private Mode
+                    </button>
+                </div>
+
+                <p class="consent-note">You can change this setting anytime in Settings.</p>
+            </div>
+        </div>
+
         <!-- Home Screen -->
-        <div id="home-screen" class="screen active">
+        <div id="home-screen" class="screen">
             <header class="game-header">
                 <h1>Checkpoint Courier</h1>
                 <div class="player-stats">
@@ -113,8 +146,20 @@
                         on decision-making. No personal information is collected.
                     </p>
                     <div class="setting-row">
-                        <label for="consent-toggle">Data Collection</label>
+                        <label for="consent-toggle">Donate Gameplay Data</label>
                         <input type="checkbox" id="consent-toggle" checked>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h3>Sound</h3>
+                    <div class="setting-row">
+                        <label for="sound-toggle">Sound Effects</label>
+                        <input type="checkbox" id="sound-toggle">
+                    </div>
+                    <div class="setting-row">
+                        <label for="volume-slider">Volume</label>
+                        <input type="range" id="volume-slider" min="0" max="100" value="50">
                     </div>
                 </section>
 
