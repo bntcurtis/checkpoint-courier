@@ -94,6 +94,10 @@ export class DrivingGame {
         this.maxLives = 3;
         this.invincibleUntil = 0; // Brief invincibility after hit
 
+        // Screen shake effect
+        this.shakeUntil = 0;
+        this.shakeIntensity = 0;
+
         // Visual scroll offset
         this.scrollOffset = 0;
 
@@ -107,6 +111,8 @@ export class DrivingGame {
         this.onSpeedChange = null;
         this.onLivesChange = null;
         this.onGameOver = null;
+        this.onCrash = null;      // Called immediately when lives hit 0 (for state save)
+        this.onCollision = null;  // Called on any collision (for screen shake)
 
         // Animation frame ID
         this.animationId = null;
@@ -387,8 +393,18 @@ export class DrivingGame {
                 // Slow down on hit
                 this.speed = Math.max(0, this.speed - 20);
 
+                // Trigger screen shake
+                this.triggerScreenShake(8, 200);
+                if (this.onCollision) {
+                    this.onCollision();
+                }
+
                 // Check for game over
                 if (this.lives <= 0) {
+                    // Immediately notify for state save (before any async operations)
+                    if (this.onCrash) {
+                        this.onCrash();
+                    }
                     this.stop();
                     if (this.onGameOver) {
                         this.onGameOver();
@@ -409,13 +425,16 @@ export class DrivingGame {
         if (this.distance >= checkpoint.position && !checkpoint.passed) {
             checkpoint.passed = true;
 
+            // Increment index BEFORE callback so UI shows correct "checkpoint X of Y"
+            const checkpointIndex = this.currentCheckpointIndex;
+            this.currentCheckpointIndex++;
+
             if (checkpoint.hasOfficer && this.onCheckpoint) {
                 // Pause game for negotiation
                 this.pause();
-                this.onCheckpoint(checkpoint, this.currentCheckpointIndex);
+                // Pass the checkpoint number (1-indexed for display)
+                this.onCheckpoint(checkpoint, checkpointIndex + 1);
             }
-
-            this.currentCheckpointIndex++;
         }
     }
 
@@ -437,9 +456,14 @@ export class DrivingGame {
         const width = this.canvas.width;
         const height = this.canvas.height;
 
+        // Apply screen shake
+        const shake = this.getShakeOffset();
+        ctx.save();
+        ctx.translate(shake.x, shake.y);
+
         // Clear canvas with grass
         ctx.fillStyle = GRASS_COLOR;
-        ctx.fillRect(0, 0, width, height);
+        ctx.fillRect(-10, -10, width + 20, height + 20); // Slightly larger to cover shake
 
         // Draw shoulders
         ctx.fillStyle = SHOULDER_COLOR;
@@ -483,6 +507,9 @@ export class DrivingGame {
 
         // Draw finish line if close
         this.renderFinishLine(ctx, height);
+
+        // Restore context (end screen shake)
+        ctx.restore();
     }
 
     /**
@@ -800,6 +827,30 @@ export class DrivingGame {
      */
     setBraking(value) {
         this.braking = value;
+    }
+
+    /**
+     * Trigger screen shake effect
+     * @param {number} intensity - Shake intensity in pixels
+     * @param {number} duration - Duration in milliseconds
+     */
+    triggerScreenShake(intensity, duration) {
+        this.shakeIntensity = intensity;
+        this.shakeUntil = performance.now() + duration;
+    }
+
+    /**
+     * Get current shake offset for rendering
+     */
+    getShakeOffset() {
+        if (performance.now() > this.shakeUntil) {
+            return { x: 0, y: 0 };
+        }
+        const intensity = this.shakeIntensity;
+        return {
+            x: (Math.random() - 0.5) * intensity * 2,
+            y: (Math.random() - 0.5) * intensity * 2
+        };
     }
 
     /**

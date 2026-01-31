@@ -363,6 +363,7 @@ export class Player {
         this.totalBribeAmount = data.totalBribeAmount ?? 0;
         this.totalFineAmount = data.totalFineAmount ?? 0;
         this.permitInventory = data.permitInventory || {}; // { permitType: deliveriesRemaining }
+        this.permitsEverOwned = data.permitsEverOwned || {}; // { permitType: true } - tracks permit ownership history
         this.heatTracker = data.heatTracker || this.initializeHeatTracker();
         this.upgrades = data.upgrades || []; // Array of upgrade IDs
         this.impoundedUntilDelivery = data.impoundedUntilDelivery ?? 0;
@@ -431,6 +432,7 @@ export class Player {
             totalBribeAmount: this.totalBribeAmount,
             totalFineAmount: this.totalFineAmount,
             permitInventory: this.permitInventory,
+            permitsEverOwned: this.permitsEverOwned,
             heatTracker: this.heatTracker,
             upgrades: this.upgrades,
             impoundedUntilDelivery: this.impoundedUntilDelivery,
@@ -527,6 +529,10 @@ export class CheckpointEncounter {
         this.responseTimeMs = data.responseTimeMs;
         this.timestamp = coarsenTimestamp(new Date());
 
+        // Environmental/contextual factors for research
+        this.isBlitz = data.isBlitz ?? false;
+        this.moneyBeforeEncounter = data.moneyBeforeEncounter ?? 0;
+
         // Hover time tracking (behavioral hesitation metrics)
         // Each tracks milliseconds spent hovering over the button before final action
         this.hoverTimeBribe = data.hoverTimeBribe || 0;
@@ -552,7 +558,7 @@ export class DeliverySession {
         this.treatment = data.treatment;
         this.deliveryId = data.deliveryId;
         this.startTime = data.startTime || coarsenTimestamp(new Date());
-        this.endTime = data.endTime || null;
+        this.endTime = data.endTime || null; // Set via setEndTime() for consistency
         this.moneyBefore = data.moneyBefore;
         this.moneyAfter = data.moneyAfter || null;
         this.checkpointsTotal = data.checkpointsTotal;
@@ -562,6 +568,21 @@ export class DeliverySession {
         this.totalBribes = data.totalBribes || 0;
         this.totalFines = data.totalFines || 0;
         this.hadContraband = data.hadContraband || false;
+        // Duration in milliseconds (more useful than precise timestamps for research)
+        this.durationMs = data.durationMs || null;
+    }
+
+    /**
+     * Set end time with coarsened timestamp for privacy consistency
+     */
+    setEndTime() {
+        const now = new Date();
+        this.endTime = coarsenTimestamp(now);
+        // Also calculate duration if we have start time
+        if (this.startTime) {
+            const start = new Date(this.startTime);
+            this.durationMs = now.getTime() - start.getTime();
+        }
     }
 
     toJSON() {
@@ -580,6 +601,11 @@ export class DeliverySession {
  * Generate a UUID v4
  */
 export function generateUUID() {
+    // Use crypto.randomUUID() if available (modern browsers), fallback to custom implementation
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    // Fallback for older browsers
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         const r = Math.random() * 16 | 0;
         const v = c === 'x' ? r : (r & 0x3 | 0x8);

@@ -158,6 +158,8 @@ class GameState {
     addPermit(permitType, deliveries) {
         const current = this.player.permitInventory[permitType] || 0;
         this.player.permitInventory[permitType] = current + deliveries;
+        // Track that player has owned this permit type (for prerequisite checking)
+        this.player.permitsEverOwned[permitType] = true;
         this.save();
         this.emit('permitAdded', { type: permitType, remaining: this.player.permitInventory[permitType] });
     }
@@ -217,10 +219,42 @@ class GameState {
         this.emit('consentChanged', value);
     }
 
+    setSoundEnabled(value) {
+        this.player.soundEnabled = value;
+        this.save();
+        this.emit('soundChanged', value);
+    }
+
+    setSoundVolume(value) {
+        this.player.soundVolume = value;
+        this.save();
+    }
+
     completeTutorial() {
         this.player.tutorialComplete = true;
         this.save();
         this.emit('tutorialCompleted');
+    }
+
+    // ========================================
+    // PERMIT FRUSTRATION TRACKING
+    // ========================================
+
+    recordPermitAttempt() {
+        this.player.permitApplicationAttempts++;
+        this.save();
+    }
+
+    recordPermitFailure() {
+        this.player.permitApplicationFailures++;
+        this.save();
+        this.emit('permitFailed', this.player.permitApplicationFailures);
+    }
+
+    recordPermitAbandon() {
+        this.player.permitApplicationAbandons++;
+        this.save();
+        this.emit('permitAbandoned', this.player.permitApplicationAbandons);
     }
 
     // ========================================
@@ -240,7 +274,12 @@ class GameState {
     endSession(outcome) {
         if (this.currentSession) {
             this.currentSession.outcome = outcome;
-            this.currentSession.endTime = new Date().toISOString();
+            // Use setEndTime for consistent timestamp coarsening
+            if (this.currentSession.setEndTime) {
+                this.currentSession.setEndTime();
+            } else {
+                this.currentSession.endTime = new Date().toISOString();
+            }
             this.currentSession.moneyAfter = this.player.money;
             this.emit('sessionEnded', this.currentSession);
         }

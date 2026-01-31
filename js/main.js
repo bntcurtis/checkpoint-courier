@@ -203,7 +203,8 @@ function setupNavigation() {
 }
 
 function showScreen(name) {
-    Object.values(screens).forEach(screen => screen.classList.remove('active'));
+    // Null-safe iteration to prevent crashes if any screen element is missing
+    Object.values(screens).filter(Boolean).forEach(screen => screen.classList.remove('active'));
     if (screens[name]) {
         screens[name].classList.add('active');
     }
@@ -759,10 +760,13 @@ function handleNegotiationAction(action) {
         isBlitz: currentCheckpoint.isBlitz,
     };
 
+    // Capture money before the encounter for budget constraint analysis
+    const moneyBeforeEncounter = player.money;
+
     // Process the action
     const result = processNegotiation(action, context);
 
-    // Log encounter with hover time data
+    // Log encounter with hover time data and contextual factors
     const encounter = new CheckpointEncounter({
         sessionId: gameState.currentSession?.id,
         playerId: player.id,
@@ -782,6 +786,9 @@ function handleNegotiationAction(action) {
         hadContraband: context.hasContraband,
         heatLevel: context.player.getHeat(officer.personality),
         responseTimeMs: Math.round(responseTimeMs),
+        // Environmental/contextual factors
+        isBlitz: currentCheckpoint.isBlitz || false,
+        moneyBeforeEncounter: moneyBeforeEncounter,
         // Hover time tracking - captures hesitation/consideration behavior
         hoverTimeBribe: Math.round(hoverTracking.bribe?.total || 0),
         hoverTimePermit: Math.round(hoverTracking.show_permit?.total || 0),
@@ -800,10 +807,16 @@ function handleNegotiationAction(action) {
         gameState.updateMoney(result.moneyChange);
     }
 
-    if (result.bribeAmount > 0 && result.passed) {
-        gameState.recordBribe(result.bribeAmount);
+    // Track bribes - record ALL bribe attempts (accepted or rejected) for accurate accounting
+    // Heat is applied for ANY bribe attempt (you tried to bribe, officer remembers)
+    if (result.bribeAmount > 0) {
+        if (result.passed) {
+            // Bribe was accepted
+            gameState.recordBribe(result.bribeAmount);
+            playSound('bribe');
+        }
+        // Apply heat for ANY bribe attempt - attempting bribery is noticed regardless of outcome
         gameState.increaseHeat(officer.personality, result.heatChange || 0.15);
-        playSound('bribe');
     }
 
     if (result.fineAmount > 0) {
@@ -1004,6 +1017,14 @@ function handleDeliveryComplete(wasImpounded = false) {
 }
 
 function showDeliverySummary(delivery, wasImpounded) {
+    const dialog = document.getElementById('delivery-complete-dialog');
+
+    // Always reset the title to normal (in case it was changed by game over)
+    const titleEl = dialog?.querySelector('.dialog-header h3');
+    if (titleEl) {
+        titleEl.textContent = wasImpounded ? '🚫 Truck Impounded!' : 'Delivery Complete!';
+    }
+
     const baseReward = wasImpounded ? 0 : (delivery?.getEffectiveReward(gameState.player) || 0);
     const totalFines = gameState.sessionFineAmount;
     const totalBribes = gameState.sessionBribeAmount;
@@ -1430,21 +1451,27 @@ setInterval(() => {
 
 // BACKUP: Try to upload any in-progress session if user closes/navigates away
 window.addEventListener('beforeunload', () => {
-    // If there's an active session, try to upload it
-    if (gameState.currentSession) {
+    // Only upload if user has given consent
+    if (gameState.player?.consentGiven === true && gameState.currentSession) {
         const session = gameState.currentSession;
         session.outcome = 'abandoned';
-        session.endTime = new Date().toISOString();
+        // Use setEndTime for consistent timestamp coarsening
+        if (session.setEndTime) {
+            session.setEndTime();
+        } else {
+            session.endTime = new Date().toISOString();
+        }
         session.totalBribes = gameState.sessionBribeAmount;
         session.totalFines = gameState.sessionFineAmount;
 
         // Use sendBeacon for reliable delivery during page unload
         const payload = JSON.stringify({
+            schemaVersion: '1.1.0',
+            appVersion: '1.0.0',
             playerId: gameState.player.id,
             treatmentCode: gameState.player.treatment,
             session: session.toJSON ? session.toJSON() : session,
             timestamp: new Date().toISOString(),
-            appVersion: '1.0.0',
             platform: 'web',
             uploadTrigger: 'beforeunload',
         });
@@ -1457,7 +1484,7 @@ window.addEventListener('beforeunload', () => {
         }
     }
 
-    // Also process any pending uploads
+    // Also process any pending uploads (these are already consent-checked when queued)
     processPendingUploads();
 });
 

@@ -327,7 +327,7 @@ export function evaluateImpound(context) {
 
     // Shakedowns prefer the fine money, less likely to impound
     if (officer.personality === OfficerPersonality.SHAKEDOWN) {
-        impoundChance += 0.1;
+        impoundChance -= 0.1;
     }
 
     // Blitz events

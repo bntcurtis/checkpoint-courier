@@ -9,6 +9,11 @@ const UPLOAD_ENDPOINT = 'https://checkpoint-ingest.bntcurtis.workers.dev/';
 const APP_SECRET = 'cc_v1_secure_8823x9'; // App attestation
 const UPLOAD_TIMEOUT = 30000; // 30 seconds
 
+// Schema versioning for data format changes
+// Increment when changing payload structure to help researchers identify data versions
+const SCHEMA_VERSION = '1.1.0';
+const APP_VERSION = '1.0.0';
+
 // Store last upload result for diagnostics
 let lastUploadResult = null;
 
@@ -23,11 +28,16 @@ export async function uploadSession(session) {
     }
 
     const payload = {
+        // Schema versioning for data format identification
+        schemaVersion: SCHEMA_VERSION,
+        appVersion: APP_VERSION,
+        // Player identification
         playerId: gameState.player.id,
         treatmentCode: gameState.player.treatment,
+        // Session data
         session: session.toJSON ? session.toJSON() : session,
+        // Metadata
         timestamp: new Date().toISOString(),
-        appVersion: '1.0.0',
         platform: 'web',
     };
 

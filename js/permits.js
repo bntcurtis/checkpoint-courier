@@ -165,10 +165,9 @@ export class PermitService {
 
         // Check prerequisites
         if (def.prerequisite) {
-            // Must have owned the prerequisite at some point (or currently own it)
-            // For simplicity, we check if they have deliveries remaining OR have completed deliveries with it
-            const hasPrereq = player.permitInventory[def.prerequisite] > 0 ||
-                              player.totalDeliveries > 0; // Simplified check
+            // Must have owned the prerequisite permit at some point
+            const hasPrereq = player.permitsEverOwned?.[def.prerequisite] === true ||
+                              player.permitInventory[def.prerequisite] > 0;
 
             if (!hasPrereq) {
                 return 'locked';
